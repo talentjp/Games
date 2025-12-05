@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pong Online</title>
+    
+    <!-- Viewport settings for iOS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <!-- iOS PWA Settings -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Pong Online">
+    
+    <!-- Playroom Dependencies (React is required for the UMD build) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Playroom Kit SDK -->
+    <script src="https://unpkg.com/playroomkit/multiplayer.umd.js"></script>
+    
+    <!-- Dynamic Icon Generation -->
+    <script>
+        window.addEventListener('load', function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 192;
+            canvas.height = 192;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, 192, 192);
+            ctx.fillStyle = '#00E5FF';
+            ctx.fillRect(20, 46, 20, 100);
+            ctx.beginPath();
+            ctx.arc(120, 96, 15, 0, Math.PI*2);
+            ctx.fill();
+            const iconUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('link');
+            link.rel = 'apple-touch-icon';
+            link.href = iconUrl;
+            document.head.appendChild(link);
+        });
+    </script>
+
+    <!-- Data URI Manifest -->
+    <link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUG9uZyBPbmxpbmUiLCJzaG9ydF9uYW1lIjoiUG9uZyIs" id="dynamic-manifest">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none;
+            overscroll-behavior: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #status-msg {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #888;
+            pointer-events: none;
+            font-size: 14px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="status-msg">Initializing...</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // --- Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status-msg');
+
+        // PWA Manifest setup
+        const manifest = {
+            name: "Pong Online",
+            short_name: "Pong",
+            start_url: ".",
+            display: "standalone",
+            background_color: "#1a1a1a",
+            theme_color: "#1a1a1a",
+            orientation: "landscape"
+        };
+        const stringManifest = JSON.stringify(manifest);
+        const blob = new Blob([stringManifest], {type: 'application/json'});
+        const manifestURL = URL.createObjectURL(blob);
+        document.querySelector('#dynamic-manifest').setAttribute('href', manifestURL);
+
+        // --- Game Variables ---
+        let width, height;
+        const paddleHeight = 100;
+        const paddleWidth = 15;
+        const paddleOffset = 30;
+        
+        let myPaddleY = 0;
+        let ball = { x: 0, y: 0, radius: 10, dx: 6, dy: 6 };
+        
+        // Local Player List
+        let players = []; 
+
+        // --- Resize Handling ---
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            if(ball.x === 0 && ball.y === 0) {
+                ball.x = width/2;
+                ball.y = height/2;
+            }
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Input Handling ---
+        function handleInput(y) {
+            myPaddleY = y - (paddleHeight / 2);
+            myPaddleY = Math.max(0, Math.min(height - paddleHeight, myPaddleY));
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            let rect = canvas.getBoundingClientRect();
+            handleInput(e.clientY - rect.top);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            let rect = canvas.getBoundingClientRect();
+            handleInput(e.touches[0].clientY - rect.top);
+        }, { passive: false });
+
+
+        // --- Multiplayer Logic ---
+        async function startMultiplayer() {
+            statusDiv.innerText = "Connecting to Lobby...";
+
+            try {
+                // Initialize Playroom
+                // Note: React UMD scripts must be loaded before Playroom UMD
+                if (typeof Playroom === 'undefined') {
+                    throw new Error("Playroom SDK failed to load. Please refresh.");
+                }
+
+                await Playroom.insertCoin({
+                    skipLobby: false,
+                    gameId: "pong-pwa-final-v2",
+                    discord: false
+                });
+
+                // Player Tracking
+                Playroom.onPlayerJoin((player) => {
+                    console.log("Player joined:", player.id);
+                    players.push(player);
+                    
+                    player.onQuit(() => {
+                        console.log("Player left:", player.id);
+                        players = players.filter(p => p.id !== player.id);
+                    });
+                });
+
+                statusDiv.innerText = "PLAYING";
+                
+                // Host State Init
+                if (Playroom.isHost()) {
+                    Playroom.setState("ball", ball);
+                    Playroom.setState("score1", 0);
+                    Playroom.setState("score2", 0);
+                }
+
+                // Start Loop
+                requestAnimationFrame(gameLoop);
+
+            } catch (err) {
+                console.error("Multiplayer Init Error:", err);
+                statusDiv.innerText = "Error: " + err.message;
+                statusDiv.style.color = "red";
+            }
+        }
+
+        // --- Game Loop ---
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update() {
+            // 1. Send my local input
+            const me = Playroom.myPlayer();
+            if (me) {
+                me.setState("y", myPaddleY);
+            }
+
+            // 2. Host Logic (Physics)
+            if (Playroom.isHost()) {
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+
+                // Ceiling/Floor Bounce
+                if (ball.y - ball.radius < 0 || ball.y + ball.radius > height) {
+                    ball.dy = -ball.dy;
+                }
+
+                // Collisions (Using our local players array)
+                if (players.length >= 2) {
+                    const sortedPlayers = [...players].sort((a, b) => a.id.localeCompare(b.id));
+                    
+                    const p1 = sortedPlayers[0];
+                    const p2 = sortedPlayers[1];
+                    
+                    const p1y = p1.getState("y") || 0;
+                    const p2y = p2.getState("y") || 0;
+
+                    // Left Paddle Hit
+                    if (ball.x - ball.radius < paddleOffset + paddleWidth && 
+                        ball.y > p1y && ball.y < p1y + paddleHeight) {
+                            ball.dx = Math.abs(ball.dx) + 0.5;
+                    }
+                    
+                    // Right Paddle Hit
+                    if (ball.x + ball.radius > width - paddleOffset - paddleWidth && 
+                        ball.y > p2y && ball.y < p2y + paddleHeight) {
+                            ball.dx = -Math.abs(ball.dx) - 0.5;
+                    }
+                }
+
+                // Scoring
+                if (ball.x < 0) {
+                    Playroom.setState("score2", (Playroom.getState("score2") || 0) + 1);
+                    resetBall();
+                } else if (ball.x > width) {
+                    Playroom.setState("score1", (Playroom.getState("score1") || 0) + 1);
+                    resetBall();
+                }
+
+                // Sync Ball
+                Playroom.setState("ball", ball);
+            } 
+            else {
+                // Client Logic: Listen to Ball
+                const syncedBall = Playroom.getState("ball");
+                if (syncedBall) ball = syncedBall;
+            }
+        }
+
+        function resetBall() {
+            ball.x = width / 2;
+            ball.y = height / 2;
+            ball.dx = (Math.random() > 0.5 ? 6 : -6);
+            ball.dy = (Math.random() * 6) - 3;
+        }
+
+        function draw() {
+            // Clear Screen
+            ctx.fillStyle = "#1a1a1a";
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw Net
+            ctx.strokeStyle = '#333';
+            ctx.setLineDash([10, 15]);
+            ctx.beginPath();
+            ctx.moveTo(width / 2, 0);
+            ctx.lineTo(width / 2, height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Scores
+            if (typeof Playroom !== 'undefined') {
+                ctx.fillStyle = '#fff';
+                ctx.font = '50px Courier New';
+                ctx.fillText(Playroom.getState("score1") || 0, width / 4, 80);
+                ctx.fillText(Playroom.getState("score2") || 0, 3 * width / 4, 80);
+
+                // Draw Players (from local list)
+                const sortedPlayers = [...players].sort((a, b) => a.id.localeCompare(b.id));
+                
+                sortedPlayers.forEach((player, index) => {
+                    const y = player.getState("y") || 0;
+                    const color = player.getProfile().color.hex || '#fff';
+                    
+                    ctx.fillStyle = color;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = color;
+                    
+                    // P1 on Left, P2 on Right
+                    let x = (index === 0) ? paddleOffset : width - paddleWidth - paddleOffset;
+                    
+                    ctx.fillRect(x, y, paddleWidth, paddleHeight);
+                    ctx.shadowBlur = 0;
+                });
+            }
+
+            // Draw Ball
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Start
+        window.addEventListener('load', startMultiplayer);
+
+    </script>
+</body>
+</html>
+
+
