@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Balatro</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --table-color: #2c3e50;
+            --card-width: 70px;
+            --card-height: 100px;
+            --accent: #e74c3c;
+            --chips: #3498db;
+            --mult: #e74c3c;
+            --text: #ecf0f1;
+        }
+
+        * { box-sizing: border-box; user-select: none; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-color);
+            color: var(--text);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #app {
+            width: 100%;
+            max-width: 600px;
+            height: 100vh;
+            max-height: 900px;
+            background-color: #222;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        /* --- Header & Stats --- */
+        header {
+            padding: 10px;
+            background: #111;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #444;
+        }
+
+        .stat-box {
+            text-align: center;
+        }
+        
+        .score-display {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .score-display span.chips { color: var(--chips); }
+        .score-display span.mult { color: var(--mult); }
+
+        /* --- Game Area --- */
+        #game-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            gap: 10px;
+            position: relative;
+        }
+
+        /* Joker Zone */
+        #joker-container {
+            height: 80px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            padding: 5px;
+            gap: 5px;
+            overflow-x: auto;
+        }
+
+        .joker-card {
+            min-width: 50px;
+            height: 70px;
+            background: #5e35b1;
+            border: 2px solid #7e57c2;
+            border-radius: 5px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.7rem;
+            text-align: center;
+            padding: 2px;
+            color: white;
+            cursor: help;
+        }
+
+        /* Play Area (Middle) */
+        #play-area {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px dashed #444;
+            border-radius: 10px;
+            min-height: 120px;
+            gap: 5px;
+        }
+
+        .score-preview {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 10px 20px;
+            border-radius: 20px;
+            pointer-events: none;
+            display: none;
+            z-index: 10;
+        }
+
+        /* Hand Area (Bottom) */
+        #hand-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: -10px; /* Overlap slightly */
+            padding-bottom: 10px;
+            min-height: 110px;
+        }
+
+        .card {
+            width: var(--card-width);
+            height: var(--card-height);
+            background: white;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 5px;
+            color: black;
+            font-weight: bold;
+            font-size: 1.2rem;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+            cursor: pointer;
+            transition: transform 0.1s, margin 0.1s;
+            position: relative;
+        }
+
+        .card.red { color: #c0392b; }
+        .card.black { color: #2c3e50; }
+        
+        .card.selected {
+            transform: translateY(-20px);
+            box-shadow: 0 0 10px var(--accent);
+            border: 2px solid var(--accent);
+        }
+
+        .card .small-suit { font-size: 0.8rem; }
+        .card .big-suit { 
+            position: absolute; 
+            top: 50%; left: 50%; 
+            transform: translate(-50%, -50%); 
+            font-size: 2.5rem; 
+            opacity: 0.2;
+        }
+
+        /* Controls */
+        #controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            padding: 10px;
+            background: #111;
+        }
+
+        button {
+            padding: 12px 20px;
+            font-family: inherit;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: opacity 0.2s;
+        }
+
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-play { background: var(--accent); color: white; }
+        .btn-discard { background: #c0392b; color: white; }
+        .btn-sort { background: #3498db; color: white; }
+
+        /* --- Shop Overlay --- */
+        #shop-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: none; /* Flex when active */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        
+        .shop-items {
+            display: flex;
+            gap: 15px;
+            margin: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .shop-item {
+            width: 100px;
+            height: 140px;
+            background: #2c3e50;
+            border: 2px solid #f1c40f;
+            border-radius: 8px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            text-align: center;
+            cursor: pointer;
+        }
+        .shop-item:hover { background: #34495e; }
+        .shop-item .price { color: #f1c40f; font-weight: bold; }
+
+        /* Game Over / Win Screens */
+        #message-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+        #message-overlay h1 { font-size: 3rem; color: var(--accent); margin-bottom: 20px; }
+
+        /* Utils */
+        .hidden { display: none !important; }
+        
+        /* CRT Effect Overlay */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div class="scanlines"></div>
+    
+    <!-- Header -->
+    <header>
+        <div class="stat-box">
+            <div style="font-size: 0.8rem; color: #888;">TARGET SCORE</div>
+            <div style="color: #e74c3c; font-size: 1.2rem;" id="target-score">300</div>
+        </div>
+        <div class="stat-box">
+            <div style="font-size: 0.8rem; color: #888;">ROUND SCORE</div>
+            <div style="color: white; font-size: 1.5rem;" id="current-score">0</div>
+        </div>
+        <div class="stat-box">
+            <div style="font-size: 0.8rem; color: #888;">HANDS / DISCARDS</div>
+            <div style="color: #3498db; font-size: 1.2rem;">
+                <span id="hands-left">4</span> / <span id="discards-left">3</span>
+            </div>
+        </div>
+        <div class="stat-box">
+            <div style="font-size: 0.8rem; color: #888;">MONEY</div>
+            <div style="color: #f1c40f; font-size: 1.2rem;">$<span id="money">0</span></div>
+        </div>
+    </header>
+
+    <!-- Game Area -->
+    <div id="game-area">
+        <!-- Joker Zone -->
+        <div id="joker-container">
+            <!-- Jokers injected here -->
+            <div style="color: #666; width: 100%; text-align: center; font-size: 0.8rem;">Joker Slots</div>
+        </div>
+
+        <!-- Play Area -->
+        <div id="play-area">
+            <div class="score-preview" id="score-preview">
+                <span id="preview-hand-name">High Card</span><br>
+                <span class="chips" id="preview-chips">0</span> X <span class="mult" id="preview-mult">0</span>
+            </div>
+        </div>
+
+        <!-- Hand -->
+        <div id="hand-container">
+            <!-- Cards injected here -->
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+        <button class="btn-play" id="btn-play" onclick="game.playHand()">PLAY HAND</button>
+        <button class="btn-discard" id="btn-discard" onclick="game.discardHand()">DISCARD</button>
+        <button class="btn-sort" onclick="game.sortHand()">SORT</button>
+    </div>
+
+    <!-- Shop Overlay -->
+    <div id="shop-overlay">
+        <h2 style="color: white;">SHOP</h2>
+        <div style="color: #aaa;">Choose one Joker to add to your collection</div>
+        <div class="shop-items" id="shop-items"></div>
+        <button onclick="game.nextRound()" style="background: #27ae60; color: white; margin-top: 20px;">NEXT ROUND</button>
+    </div>
+
+    <!-- Message Overlay -->
+    <div id="message-overlay">
+        <h1 id="msg-title">GAME OVER</h1>
+        <p id="msg-subtitle" style="color: white; margin-bottom: 20px;">Score: 0</p>
+        <button onclick="location.reload()" style="background: white; color: black;">RESTART</button>
+    </div>
+
+</div>
+
+<script>
+/**
+ * MINI BALATRO
+ * A simplified poker roguelike engine.
+ */
+
+// --- Constants & Config ---
+const SUITS = ['♠', '♥', '♣', '♦'];
+const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const VALUES = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
+    'J': 10, 'Q': 10, 'K': 10, 'A': 11
+};
+
+const HAND_LEVELS = {
+    'High Card': { chips: 5, mult: 1 },
+    'Pair': { chips: 10, mult: 2 },
+    'Two Pair': { chips: 20, mult: 2 },
+    'Three of a Kind': { chips: 30, mult: 3 },
+    'Straight': { chips: 30, mult: 4 },
+    'Flush': { chips: 35, mult: 4 },
+    'Full House': { chips: 40, mult: 4 },
+    'Four of a Kind': { chips: 60, mult: 7 },
+    'Straight Flush': { chips: 100, mult: 8 },
+    'Royal Flush': { chips: 100, mult: 8 }
+};
+
+const JOKER_defs = [
+    { id: 'j_joker', name: 'Joker', desc: '+4 Mult', cost: 2, effect: (ctx) => { ctx.mult += 4; } },
+    { id: 'j_greedy', name: 'Greedy Joker', desc: '+10 Chips if played Diamond', cost: 4, effect: (ctx) => { if(ctx.suits.includes('♦')) ctx.chips += 10; } },
+    { id: 'j_lusty', name: 'Lusty Joker', desc: '+10 Chips if played Heart', cost: 4, effect: (ctx) => { if(ctx.suits.includes('♥')) ctx.chips += 10; } },
+    { id: 'j_wrath', name: 'Wrath Joker', desc: '+10 Chips if played Spade', cost: 4, effect: (ctx) => { if(ctx.suits.includes('♠')) ctx.chips += 10; } },
+    { id: 'j_glut', name: 'Glutton Joker', desc: '+10 Chips if played Club', cost: 4, effect: (ctx) => { if(ctx.suits.includes('♣')) ctx.chips += 10; } },
+    { id: 'j_sly', name: 'Sly Joker', desc: '+50 Chips if Pair', cost: 5, effect: (ctx) => { if(ctx.handType === 'Pair') ctx.chips += 50; } },
+    { id: 'j_crazy', name: 'Crazy Joker', desc: '+10 Mult if Straight', cost: 6, effect: (ctx) => { if(ctx.handType === 'Straight') ctx.mult += 10; } },
+    { id: 'j_droll', name: 'Droll Joker', desc: '+8 Mult if Flush', cost: 6, effect: (ctx) => { if(ctx.handType === 'Flush') ctx.mult += 8; } },
+    { id: 'j_half', name: 'Half Joker', desc: '+15 Mult if 3 or fewer cards played', cost: 5, effect: (ctx) => { if(ctx.cardsPlayed <= 3) ctx.mult += 15; } },
+    { id: 'j_big', name: 'Big Joker', desc: 'X2 Mult', cost: 8, effect: (ctx) => { ctx.mult *= 2; } },
+];
+
+// --- Classes ---
+
+class Card {
+    constructor(rank, suit) {
+        this.rank = rank;
+        this.suit = suit;
+        this.value = VALUES[rank];
+        this.id = Math.random().toString(36).substr(2, 9);
+        this.selected = false;
+    }
+
+    get color() {
+        return (this.suit === '♥' || this.suit === '♦') ? 'red' : 'black';
+    }
+
+    get sortValue() {
+        return RANKS.indexOf(this.rank);
+    }
+}
+
+// --- Game Logic ---
+
+class Game {
+    constructor() {
+        this.deck = [];
+        this.hand = [];
+        this.jokers = [];
+        this.discardPile = [];
+        
+        this.round = 1;
+        this.money = 0;
+        this.roundScore = 0;
+        this.targetScore = 300;
+        this.handsLeft = 4;
+        this.discardsLeft = 3;
+        
+        this.initDeck();
+        this.dealHand(8);
+        this.updateUI();
+    }
+
+    initDeck() {
+        this.deck = [];
+        for (let s of SUITS) {
+            for (let r of RANKS) {
+                this.deck.push(new Card(r, s));
+            }
+        }
+        this.shuffleDeck();
+    }
+
+    shuffleDeck() {
+        for (let i = this.deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]];
+        }
+    }
+
+    dealHand(count) {
+        while (this.hand.length < count && this.deck.length > 0) {
+            this.hand.push(this.deck.pop());
+        }
+        this.sortHand();
+    }
+
+    sortHand() {
+        this.hand.sort((a, b) => b.sortValue - a.sortValue); // Descending
+        this.updateUI();
+    }
+
+    toggleSelect(cardId) {
+        const card = this.hand.find(c => c.id === cardId);
+        if (!card) return;
+
+        const selectedCount = this.hand.filter(c => c.selected).length;
+        if (!card.selected && selectedCount >= 5) return; // Max 5
+
+        card.selected = !card.selected;
+        this.updateUI();
+        this.updatePreview();
+    }
+
+    getSelectedCards() {
+        return this.hand.filter(c => c.selected);
+    }
+
+    // --- Poker Logic ---
+    evaluate(cards) {
+        if (cards.length === 0) return { type: 'None', chips: 0, mult: 0 };
+
+        // Sort by rank index
+        const sorted = [...cards].sort((a, b) => a.sortValue - b.sortValue);
+        const ranks = sorted.map(c => c.sortValue);
+        const suits = sorted.map(c => c.suit);
+
+        let isFlush = suits.every(s => s === suits[0]) && suits.length >= 5;
+        
+        // Straight Check
+        let isStraight = false;
+        if (ranks.length >= 5) {
+            isStraight = true;
+            for(let i=0; i<ranks.length-1; i++) {
+                if(ranks[i] !== ranks[i+1] - 1) {
+                    // Check Wheel (A, 2, 3, 4, 5) -> A is index 12, 2 is index 0
+                    if (i === ranks.length - 2 && ranks[i] === 3 && ranks[i+1] === 12) {
+                        // This is a 2,3,4,5,A straight
+                        continue;
+                    }
+                    isStraight = false; 
+                    break; 
+                }
+            }
+        }
+
+        // Count frequencies
+        const counts = {};
+        ranks.forEach(r => counts[r] = (counts[r] || 0) + 1);
+        const freq = Object.values(counts).sort((a,b) => b-a);
+
+        let type = 'High Card';
+        if (isFlush && isStraight) {
+            type = (ranks[ranks.length-1] === 12 && ranks[0] === 8) ? 'Royal Flush' : 'Straight Flush';
+        } else if (freq[0] === 4) type = 'Four of a Kind';
+        else if (freq[0] === 3 && freq[1] === 2) type = 'Full House';
+        else if (isFlush) type = 'Flush';
+        else if (isStraight) type = 'Straight';
+        else if (freq[0] === 3) type = 'Three of a Kind';
+        else if (freq[0] === 2 && freq[1] === 2) type = 'Two Pair';
+        else if (freq[0] === 2) type = 'Pair';
+
+        // Base Score
+        let base = HAND_LEVELS[type];
+        let chips = base.chips;
+        let mult = base.mult;
+
+        // Add card values
+        cards.forEach(c => chips += c.value);
+
+        return { type, chips, mult };
+    }
+
+    calculateScore(selectedCards) {
+        let handEval = this.evaluate(selectedCards);
+        
+        // Apply Jokers
+        let ctx = {
+            handType: handEval.type,
+            chips: handEval.chips,
+            mult: handEval.mult,
+            suits: selectedCards.map(c => c.suit),
+            cardsPlayed: selectedCards.length,
+            jokers: this.jokers
+        };
+
+        for (let joker of this.jokers) {
+            joker.effect(ctx);
+        }
+
+        return {
+            chips: Math.floor(ctx.chips),
+            mult: Math.floor(ctx.mult),
+            total: Math.floor(ctx.chips * ctx.mult),
+            type: ctx.handType
+        };
+    }
+
+    async playHand() {
+        const selected = this.getSelectedCards();
+        if (selected.length === 0) return;
+
+        const scoreData = this.calculateScore(selected);
+        
+        // Animation effect (simulate play)
+        this.animatePlay(selected, scoreData);
+
+        // Logic update
+        this.roundScore += scoreData.total;
+        this.handsLeft--;
+        
+        // Remove played cards
+        this.hand = this.hand.filter(c => !c.selected);
+        this.dealHand(8); // Draw back up
+
+        this.updateUI();
+        
+        // Check Win/Loss conditions after delay
+        setTimeout(() => {
+            if (this.roundScore >= this.targetScore) {
+                this.winRound();
+            } else if (this.handsLeft <= 0) {
+                this.gameOver();
+            }
+        }, 1000);
+    }
+
+    discardHand() {
+        const selected = this.getSelectedCards();
+        if (selected.length === 0 || this.discardsLeft <= 0) return;
+
+        // Remove cards
+        this.hand = this.hand.filter(c => !c.selected);
+        this.discardsLeft--;
+        this.dealHand(8);
+        this.updateUI();
+    }
+
+    animatePlay(cards, scoreData) {
+        const playArea = document.getElementById('play-area');
+        // Clear previous
+        playArea.innerHTML = ''; 
+        
+        // Show Score
+        const scorePreview = document.createElement('div');
+        scorePreview.className = 'score-preview';
+        scorePreview.style.display = 'block';
+        scorePreview.innerHTML = `
+            <div style="font-size:1.2rem; color: #fff;">${scoreData.type}</div>
+            <div style="font-size:1.5rem;">
+                <span class="chips">${scoreData.chips}</span> X <span class="mult">${scoreData.mult}</span>
+            </div>
+            <div style="font-size:2rem; color: #fff; margin-top:5px;">${scoreData.total}</div>
+        `;
+        playArea.appendChild(scorePreview);
+    }
+
+    winRound() {
+        this.money += 4 + this.handsLeft; // Income logic
+        this.openShop();
+    }
+
+    openShop() {
+        const overlay = document.getElementById('shop-overlay');
+        const container = document.getElementById('shop-items');
+        container.innerHTML = '';
+        overlay.style.display = 'flex';
+
+        // Random 3 jokers
+        for(let i=0; i<3; i++) {
+            const jDef = JOKER_defs[Math.floor(Math.random() * JOKER_defs.length)];
+            const div = document.createElement('div');
+            div.className = 'shop-item';
+            div.innerHTML = `
+                <div style="font-weight:bold; font-size:0.9rem;">${jDef.name}</div>
+                <div style="font-size:0.8rem; flex:1; display:flex; align-items:center;">${jDef.desc}</div>
+                <div class="price">$${jDef.cost}</div>
+            `;
+            div.onclick = () => this.buyJoker(jDef, div);
+            container.appendChild(div);
+        }
+    }
+
+    buyJoker(jDef, element) {
+        if (this.money >= jDef.cost && this.jokers.length < 5) {
+            this.money -= jDef.cost;
+            this.jokers.push(jDef);
+            element.style.opacity = '0.2';
+            element.style.pointerEvents = 'none';
+            this.updateUI();
+        }
+    }
+
+    nextRound() {
+        document.getElementById('shop-overlay').style.display = 'none';
+        
+        // Reset Round State
+        this.round++;
+        this.roundScore = 0;
+        this.targetScore = Math.floor(this.targetScore * 1.5);
+        this.handsLeft = 4;
+        this.discardsLeft = 3;
+        
+        // Reset Deck
+        this.initDeck();
+        this.hand = [];
+        this.dealHand(8);
+        
+        // Clear Play Area
+        document.getElementById('play-area').innerHTML = `
+            <div class="score-preview" id="score-preview">
+                <span id="preview-hand-name">High Card</span><br>
+                <span class="chips" id="preview-chips">0</span> X <span class="mult" id="preview-mult">0</span>
+            </div>
+        `;
+        
+        this.updateUI();
+    }
+
+    gameOver() {
+        const el = document.getElementById('message-overlay');
+        document.getElementById('msg-title').innerText = "GAME OVER";
+        document.getElementById('msg-subtitle').innerText = `Round ${this.round} - Score: ${this.roundScore}`;
+        el.style.display = 'flex';
+    }
+
+    updateUI() {
+        // Stats
+        document.getElementById('current-score').innerText = this.roundScore;
+        document.getElementById('target-score').innerText = this.targetScore;
+        document.getElementById('hands-left').innerText = this.handsLeft;
+        document.getElementById('discards-left').innerText = this.discardsLeft;
+        document.getElementById('money').innerText = this.money;
+
+        // Buttons
+        document.getElementById('btn-play').disabled = (this.handsLeft <= 0 || this.getSelectedCards().length === 0);
+        document.getElementById('btn-discard').disabled = (this.discardsLeft <= 0 || this.getSelectedCards().length === 0);
+
+        // Render Hand
+        const handCont = document.getElementById('hand-container');
+        handCont.innerHTML = '';
+        this.hand.forEach(card => {
+            const el = document.createElement('div');
+            el.className = `card ${card.color} ${card.selected ? 'selected' : ''}`;
+            el.onclick = () => this.toggleSelect(card.id);
+            el.innerHTML = `
+                <div class="small-suit">${card.rank}<br>${card.suit}</div>
+                <div class="big-suit">${card.suit}</div>
+                <div class="small-suit" style="transform: rotate(180deg);">${card.rank}<br>${card.suit}</div>
+            `;
+            handCont.appendChild(el);
+        });
+
+        // Render Jokers
+        const jokerCont = document.getElementById('joker-container');
+        // Clear only if changed? Simplified: clear all
+        if (jokerCont.children.length - 1 !== this.jokers.length) { // -1 for the label
+             jokerCont.innerHTML = '<div style="color: #666; width: min-content; padding:0 10px; text-align: center; font-size: 0.8rem;">JOKERS</div>';
+             this.jokers.forEach(j => {
+                 const el = document.createElement('div');
+                 el.className = 'joker-card';
+                 el.innerText = j.name;
+                 el.title = j.desc; // Tooltip
+                 jokerCont.appendChild(el);
+             });
+        }
+    }
+
+    updatePreview() {
+        const selected = this.getSelectedCards();
+        const previewEl = document.getElementById('score-preview');
+        
+        if (selected.length > 0) {
+            const score = this.calculateScore(selected);
+            document.getElementById('preview-hand-name').innerText = score.type;
+            document.getElementById('preview-chips').innerText = score.chips;
+            document.getElementById('preview-mult').innerText = score.mult;
+            previewEl.style.display = 'block';
+        } else {
+            previewEl.style.display = 'none';
+        }
+    }
+}
+
+// Start Game
+const game = new Game();
+
+</script>
+</body>
+</html>
+
