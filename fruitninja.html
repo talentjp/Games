@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kawaii Fruit Slice</title>
+    <!-- Import cute font -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #fdfbfb 0%, #ebedee 100%);
+            font-family: 'Fredoka One', cursive;
+            touch-action: none; /* Prevents scrolling on mobile while playing */
+            user-select: none;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle, #fff1eb 0%, #ace0f9 100%);
+            overflow: hidden;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .hud-text {
+            position: absolute;
+            color: #ff6b6b;
+            text-shadow: 2px 2px 0px #ffffff;
+            font-size: 2rem;
+            pointer-events: none;
+        }
+
+        #score-display { top: 20px; left: 20px; }
+        #lives-display { top: 20px; right: 20px; color: #ff4757; }
+
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(5px);
+            z-index: 20;
+            pointer-events: auto;
+        }
+
+        .btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+            font-family: 'Fredoka One', cursive;
+            transition: transform 0.1s;
+            margin-top: 20px;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            color: #4ecdc4;
+            text-shadow: 3px 3px 0px #ffffff;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        p {
+            font-size: 1.2rem;
+            color: #556270;
+            margin-bottom: 20px;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div id="ui-layer">
+        <div id="score-display">Score: 0</div>
+        <div id="lives-display">❤❤❤</div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen">
+        <h1>Kawaii<br>Slice!</h1>
+        <p>Slice fruits, avoid bombs!</p>
+        <button class="btn" onclick="startGame()">Play</button>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over-screen" class="hidden">
+        <h1 style="color: #ff6b6b">Oh no!</h1>
+        <p>Final Score: <span id="final-score">0</span></p>
+        <button class="btn" onclick="startGame()">Try Again</button>
+    </div>
+</div>
+
+<script>
+    // --- Game Configuration & State ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Adjust canvas size for high DPI screens
+    let width, height, dpr;
+    
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.scale(dpr, dpr);
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Game Variables
+    let gameState = 'MENU'; // MENU, PLAYING, GAMEOVER
+    let score = 0;
+    let lives = 3;
+    let frames = 0;
+    let difficultyMultiplier = 1;
+
+    // Entities
+    let fruits = [];
+    let particles = [];
+    let bombs = [];
+    let floatingTexts = [];
+
+    // Blade / Input
+    let mouse = { x: 0, y: 0, down: false };
+    let trail = []; // Stores path points
+    const TRAIL_LENGTH = 10;
+
+    // Assets (Using Emojis)
+    const FRUIT_TYPES = [
+        { emoji: '🍓', color: '#ff4757' },
+        { emoji: '🍊', color: '#ffa502' },
+        { emoji: '🍋', color: '#eccc68' },
+        { emoji: '🥝', color: '#7bed9f' },
+        { emoji: '🍑', color: '#ff7f50' },
+        { emoji: '🍉', color: '#ff6b81' },
+        { emoji: '🍇', color: '#70a1ff' }
+    ];
+    
+    const BOMB_TYPE = { emoji: '💣', color: '#2f3542' };
+
+    // --- Input Handling (Mouse & Touch) ---
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        };
+    }
+
+    ['mousedown', 'touchstart'].forEach(evt => 
+        canvas.addEventListener(evt, (e) => {
+            mouse.down = true;
+            const pos = getPos(e);
+            mouse.x = pos.x;
+            mouse.y = pos.y;
+            trail = [{x: mouse.x, y: mouse.y}]; // Reset trail on new touch
+        }, {passive: false})
+    );
+
+    ['mousemove', 'touchmove'].forEach(evt => 
+        canvas.addEventListener(evt, (e) => {
+            e.preventDefault(); // Prevent scrolling
+            if (!mouse.down) return;
+            const pos = getPos(e);
+            mouse.x = pos.x;
+            mouse.y = pos.y;
+            trail.push({x: mouse.x, y: mouse.y});
+            if(trail.length > TRAIL_LENGTH) trail.shift();
+            
+            checkCollisions();
+        }, {passive: false})
+    );
+
+    ['mouseup', 'touchend'].forEach(evt => 
+        canvas.addEventListener(evt, () => {
+            mouse.down = false;
+            trail = [];
+        })
+    );
+
+    // --- Game Logic ---
+
+    function startGame() {
+        score = 0;
+        lives = 3;
+        difficultyMultiplier = 1;
+        fruits = [];
+        particles = [];
+        bombs = [];
+        floatingTexts = [];
+        trail = [];
+        gameState = 'PLAYING';
+        
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-over-screen').classList.add('hidden');
+        updateHUD();
+        loop();
+    }
+
+    function gameOver() {
+        gameState = 'GAMEOVER';
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('game-over-screen').classList.remove('hidden');
+    }
+
+    function updateHUD() {
+        document.getElementById('score-display').innerText = `Score: ${score}`;
+        let hearts = '';
+        for(let i=0; i<lives; i++) hearts += '❤';
+        document.getElementById('lives-display').innerText = hearts;
+    }
+
+    // --- Classes ---
+
+    class Entity {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            // Physics
+            this.vx = (Math.random() - 0.5) * (width < 600 ? 5 : 8); // Horizontal throw
+            this.vy = -(Math.random() * 5 + 12); // Vertical throw (upwards)
+            this.gravity = 0.25;
+            this.rotation = 0;
+            this.rotationSpeed = (Math.random() - 0.5) * 0.2;
+            this.size = width < 600 ? 50 : 70;
+            this.markedForDeletion = false;
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+            this.vy += this.gravity;
+            this.rotation += this.rotationSpeed;
+
+            // Remove if falls off screen
+            if (this.y > height + 100) {
+                this.markedForDeletion = true;
+                return 'missed';
+            }
+            return 'active';
+        }
+    }
+
+    class Fruit extends Entity {
+        constructor(x, y) {
+            super(x, y);
+            const type = FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+            this.emoji = type.emoji;
+            this.color = type.color;
+            this.hit = false;
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+            
+            // Draw Fruit
+            ctx.font = `${this.size}px serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.emoji, 0, 0);
+
+            // Draw Kawaii Face
+            // Eyes
+            ctx.fillStyle = '#2d3436';
+            ctx.beginPath();
+            ctx.arc(-10, -5, 3, 0, Math.PI * 2); // Left Eye
+            ctx.arc(10, -5, 3, 0, Math.PI * 2);  // Right Eye
+            ctx.fill();
+
+            // Blush
+            ctx.fillStyle = 'rgba(255, 118, 117, 0.6)';
+            ctx.beginPath();
+            ctx.ellipse(-14, 2, 4, 2, 0, 0, Math.PI*2);
+            ctx.ellipse(14, 2, 4, 2, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            // Mouth (tiny smile)
+            ctx.beginPath();
+            ctx.strokeStyle = '#2d3436';
+            ctx.lineWidth = 2;
+            ctx.arc(0, 0, 3, 0, Math.PI);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    class Bomb extends Entity {
+        constructor(x, y) {
+            super(x, y);
+            this.emoji = BOMB_TYPE.emoji;
+            this.size = width < 600 ? 50 : 70;
+        }
+        
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+            ctx.font = `${this.size}px serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.emoji, 0, 0);
+            
+            // Pulsing red glow
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = `rgba(255, 0, 0, ${Math.abs(Math.sin(frames * 0.1))})`;
+            ctx.restore();
+        }
+    }
+
+    class Particle {
+        constructor(x, y, color) {
+            this.x = x;
+            this.y = y;
+            this.color = color;
+            this.size = Math.random() * 5 + 2;
+            this.vx = (Math.random() - 0.5) * 10;
+            this.vy = (Math.random() - 0.5) * 10;
+            this.life = 1.0; // Opacity
+        }
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+            this.vy += 0.1; // Gravity
+            this.life -= 0.02;
+        }
+        draw() {
+            ctx.fillStyle = this.color;
+            ctx.globalAlpha = this.life;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    class FloatingText {
+        constructor(x, y, text) {
+            this.x = x;
+            this.y = y;
+            this.text = text;
+            this.life = 1.0;
+            this.vy = -2;
+        }
+        update() {
+            this.y += this.vy;
+            this.life -= 0.02;
+        }
+        draw() {
+            ctx.globalAlpha = this.life;
+            ctx.fillStyle = '#ffeaa7';
+            ctx.strokeStyle = '#e17055';
+            ctx.lineWidth = 1;
+            ctx.font = 'bold 30px "Fredoka One"';
+            ctx.fillText(this.text, this.x, this.y);
+            ctx.strokeText(this.text, this.x, this.y);
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    // --- Collision Logic ---
+
+    function checkCollisions() {
+        if (trail.length < 2) return;
+        
+        // Use the last segment of the trail for collision
+        const p1 = trail[trail.length - 2];
+        const p2 = trail[trail.length - 1];
+
+        // Check Fruits
+        fruits.forEach(fruit => {
+            if (fruit.hit) return;
+            const dist = pointLineDistance(fruit.x, fruit.y, p1.x, p1.y, p2.x, p2.y);
+            if (dist < fruit.size / 2) {
+                sliceFruit(fruit);
+            }
+        });
+
+        // Check Bombs
+        bombs.forEach(bomb => {
+            const dist = pointLineDistance(bomb.x, bomb.y, p1.x, p1.y, p2.x, p2.y);
+            if (dist < bomb.size / 2) {
+                hitBomb();
+            }
+        });
+    }
+
+    function pointLineDistance(x, y, x1, y1, x2, y2) {
+        const A = x - x1;
+        const B = y - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+
+        const dot = A * C + B * D;
+        const len_sq = C * C + D * D;
+        let param = -1;
+        if (len_sq != 0) // in case of 0 length line
+            param = dot / len_sq;
+
+        let xx, yy;
+
+        if (param < 0) {
+            xx = x1;
+            yy = y1;
+        } else if (param > 1) {
+            xx = x2;
+            yy = y2;
+        } else {
+            xx = x1 + param * C;
+            yy = y1 + param * D;
+        }
+
+        const dx = x - xx;
+        const dy = y - yy;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function sliceFruit(fruit) {
+        fruit.hit = true;
+        fruit.markedForDeletion = true;
+        score += 1;
+        
+        // Create Explosion
+        for(let i=0; i<15; i++) {
+            particles.push(new Particle(fruit.x, fruit.y, fruit.color));
+        }
+
+        // Float text
+        floatingTexts.push(new FloatingText(fruit.x, fruit.y - 30, "+1"));
+
+        updateHUD();
+    }
+
+    function hitBomb() {
+        // Shake screen effect
+        canvas.style.transform = `translate(${Math.random()*10-5}px, ${Math.random()*10-5}px)`;
+        setTimeout(() => canvas.style.transform = 'none', 200);
+        gameOver();
+    }
+
+    // --- Spawner ---
+    
+    function spawner() {
+        // Spawn rate increases with score
+        const spawnRate = Math.max(20, 60 - Math.floor(score / 5)); 
+        
+        if (frames % spawnRate === 0) {
+            const x = Math.random() * (width - 100) + 50;
+            const y = height + 50;
+            
+            // 15% chance for a bomb
+            if (Math.random() < 0.15 && score > 5) {
+                bombs.push(new Bomb(x, y));
+            } else {
+                fruits.push(new Fruit(x, y));
+            }
+        }
+    }
+
+    // --- Main Loop ---
+
+    function loop() {
+        if (gameState !== 'PLAYING') return;
+
+        ctx.clearRect(0, 0, width, height);
+        frames++;
+
+        spawner();
+
+        // Update Fruits
+        fruits.forEach((fruit, index) => {
+            const status = fruit.update();
+            fruit.draw();
+            
+            if (status === 'missed') {
+                lives--;
+                updateHUD();
+                floatingTexts.push(new FloatingText(fruit.x, height-50, "Miss!"));
+                if (lives <= 0) gameOver();
+            }
+        });
+        fruits = fruits.filter(f => !f.markedForDeletion);
+
+        // Update Bombs
+        bombs.forEach(bomb => {
+            bomb.update();
+            bomb.draw();
+        });
+        bombs = bombs.filter(b => !b.markedForDeletion);
+
+        // Update Particles
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+        particles = particles.filter(p => p.life > 0);
+
+        // Update Text
+        floatingTexts.forEach(t => {
+            t.update();
+            t.draw();
+        });
+        floatingTexts = floatingTexts.filter(t => t.life > 0);
+
+        // Draw Blade Trail
+        if (trail.length > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00ffe5'; // Cyan glow
+            
+            ctx.moveTo(trail[0].x, trail[0].y);
+            for (let i = 1; i < trail.length; i++) {
+                ctx.lineTo(trail[i].x, trail[i].y);
+            }
+            ctx.stroke();
+            
+            // Reset shadow
+            ctx.shadowBlur = 0;
+            
+            // Decay trail (remove old points)
+            if(!mouse.down && trail.length > 0) {
+                trail.shift();
+                trail.shift();
+            }
+        }
+
+        requestAnimationFrame(loop);
+    }
+</script>
+</body>
+</html>
+
