@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dungeon Hopper - Quest Keeper Style</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .header {
+            padding: 20px;
+            text-align: center;
+            color: white;
+            text-shadow: 2px 2px 0 #000;
+        }
+        #score-display {
+            font-size: 48px;
+            font-weight: bold;
+            color: #ffd700;
+        }
+        #dist-display {
+            font-size: 20px;
+            color: #ccc;
+        }
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+        h1 {
+            color: #fff;
+            font-size: 4em;
+            margin: 0 0 20px 0;
+            text-shadow: 4px 4px 0 #3d1653;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            text-align: center;
+        }
+        .btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 6px 0 #b33939;
+            transition: transform 0.1s;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .btn:active {
+            transform: translateY(6px);
+            box-shadow: none;
+        }
+        .hidden {
+            display: none !important;
+        }
+        
+        /* Mobile Controls */
+        #mobile-controls {
+            pointer-events: auto;
+            display: none; /* Shown via JS on touch devices */
+            width: 100%;
+            height: 180px;
+            padding-bottom: 20px;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: 70px 70px 70px;
+            grid-template-rows: 70px 70px;
+            gap: 10px;
+        }
+        
+        .control-btn {
+            width: 70px;
+            height: 70px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 32px;
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            user-select: none;
+            backdrop-filter: blur(2px);
+        }
+        .control-btn:active {
+            background: rgba(255, 255, 255, 0.4);
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2.5em; }
+            #mobile-controls { display: flex; }
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="game-container"></div>
+
+    <div id="ui-layer">
+        <div class="header">
+            <div id="score-display">0</div>
+            <div id="dist-display">Depth: 0m</div>
+        </div>
+        
+        <div id="mobile-controls">
+            <div class="d-pad">
+                <div></div>
+                <div class="control-btn" id="btn-up">▲</div>
+                <div></div>
+                <div class="control-btn" id="btn-left">◀</div>
+                <div class="control-btn" id="btn-down">▼</div>
+                <div class="control-btn" id="btn-right">▶</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h1>Dungeon Hopper</h1>
+        <button class="btn" id="start-btn">Start Quest</button>
+        <p style="color: #aaa; margin-top: 20px;">Move with Arrow Keys</p>
+    </div>
+
+    <div id="game-over-screen" class="hidden">
+        <h1 style="color: #ff4757">You Died</h1>
+        <p style="color: white; font-size: 24px; margin-bottom: 20px;">Score: <span id="final-score">0</span></p>
+        <button class="btn" id="restart-btn">Try Again</button>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const TILE_SIZE = 10;
+        const GRID_WIDTH = 12; 
+        const RENDER_DISTANCE = 40; 
+        const MOVE_SPEED = 140; 
+
+        // --- Game State ---
+        let scene, camera, renderer;
+        let player;
+        let world = {}; 
+        let entities = []; 
+        let minRow = 5; 
+        let score = 0;
+        let isGameRunning = false;
+        let isMoving = false;
+        
+        // Path Algorithm State
+        let pathCenter = 0; 
+        
+        // Player Logic
+        let playerPos = { x: 0, z: 0 };
+        
+        // --- Initialization ---
+        function init() {
+            const container = document.getElementById('game-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111111);
+            scene.fog = new THREE.Fog(0x111111, 50, 200);
+
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 90;
+            camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+            
+            // "Crossy Road" style high angle view
+            camera.position.set(0, 100, 80); 
+            camera.lookAt(0, 0, -30); 
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(-60, 150, 60); 
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.left = -150;
+            dirLight.shadow.camera.right = 150;
+            dirLight.shadow.camera.top = 150;
+            dirLight.shadow.camera.bottom = -150;
+            scene.add(dirLight);
+
+            window.addEventListener('resize', onWindowResize, false);
+            document.addEventListener('keydown', onKeyDown);
+            setupMobileControls();
+            
+            animate();
+        }
+
+        function setupMobileControls() {
+            const handleTouch = (dir) => {
+                if (!isGameRunning) return;
+                handleInput(dir);
+            };
+            const bind = (id, dir) => {
+                const el = document.getElementById(id);
+                el.addEventListener('touchstart', (e) => { e.preventDefault(); handleTouch(dir); }, {passive: false});
+                el.addEventListener('mousedown', (e) => { e.preventDefault(); handleTouch(dir); });
+            };
+            bind('btn-up', 'up');
+            bind('btn-down', 'down');
+            bind('btn-left', 'left');
+            bind('btn-right', 'right');
+        }
+
+        // --- Game Logic ---
+
+        function startGame() {
+            score = 0;
+            minRow = 5;
+            playerPos = { x: 0, z: 0 };
+            pathCenter = 0;
+            isGameRunning = true;
+            isMoving = false;
+            
+            document.getElementById('score-display').innerText = "0";
+            document.getElementById('dist-display').innerText = "Depth: 0m";
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+
+            // Clean Scene
+            const toRemove = [];
+            scene.traverse((child) => {
+                if (child.userData.isGameObj) toRemove.push(child);
+            });
+            toRemove.forEach(child => scene.remove(child));
+            
+            world = {};
+            entities = [];
+
+            createPlayer();
+
+            // Generate Initial Safe Zone
+            for (let z = 5; z > -5; z--) {
+                generateRow(z, true); 
+            }
+            // Generate Initial World
+            for (let z = -5; z > -RENDER_DISTANCE; z--) {
+                generateRow(z, false);
+            }
+        }
+
+        function createPlayer() {
+            const group = new THREE.Group();
+            group.userData.isGameObj = true;
+
+            const matBlue = new THREE.MeshLambertMaterial({ color: 0x3498db });
+            const matGrey = new THREE.MeshLambertMaterial({ color: 0xbdc3c7 });
+            const matSkin = new THREE.MeshLambertMaterial({ color: 0xffccaa });
+
+            // Body
+            const body = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 4), matBlue);
+            body.position.y = 4;
+            body.castShadow = true;
+            group.add(body);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 5), matGrey);
+            head.position.y = 9.5;
+            head.castShadow = true;
+            group.add(head);
+            
+            // Face
+            const face = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 1), matSkin);
+            face.position.set(0, 9.5, -2.6);
+            group.add(face);
+
+            // Legs
+            const lLeg = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 2), matGrey);
+            lLeg.position.set(-1.5, 1.5, 0);
+            group.add(lLeg);
+            const rLeg = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 2), matGrey);
+            rLeg.position.set(1.5, 1.5, 0);
+            group.add(rLeg);
+
+            // Sword
+            const sword = new THREE.Mesh(new THREE.BoxGeometry(1, 7, 1), new THREE.MeshLambertMaterial({color: 0xffffff}));
+            sword.position.set(4, 5, -2);
+            sword.rotation.x = Math.PI / 4;
+            group.add(sword);
+
+            scene.add(group);
+            player = group;
+        }
+
+        function generateRow(z, isStartArea) {
+            // "Wandering Path" Logic
+            const r = Math.random();
+            if (r < 0.25) pathCenter -= 1;
+            else if (r > 0.75) pathCenter += 1;
+
+            // Clamp pathCenter to grid width (minus buffer for walls)
+            const maxOffset = 5;
+            if (pathCenter < -maxOffset) pathCenter = -maxOffset;
+            if (pathCenter > maxOffset) pathCenter = maxOffset;
+
+            const leftBound = -GRID_WIDTH;
+            const rightBound = GRID_WIDTH;
+
+            for (let x = -GRID_WIDTH; x <= GRID_WIDTH; x++) {
+                let type = 'empty';
+
+                if (x <= -GRID_WIDTH + 1 || x >= GRID_WIDTH - 1) {
+                    type = 'wall';
+                } else {
+                    if (isStartArea) {
+                        type = 'ground';
+                    } else {
+                        // --- THE WIDE HIGHWAY LOGIC ---
+                        // We enforce a 3-tile wide path centered on pathCenter.
+                        // Since pathCenter only moves by 1 tile max per row,
+                        // a 3-tile width guarantees a 2-tile overlap with the previous row.
+                        
+                        const distToPath = Math.abs(x - pathCenter);
+
+                        if (distToPath <= 1) {
+                            // The Highway: Always Ground, Safe, No Spikes, No Water
+                            type = 'ground';
+                        } 
+                        else if (distToPath === 2) {
+                            // The Shoulder: Mostly ground, occasional obstacle
+                            if (Math.random() < 0.8) type = 'ground';
+                            else type = 'stone'; // Decoration
+                        }
+                        else {
+                            // The Wilds: Chaos
+                            const rand = Math.random();
+                            if (rand < 0.1) type = 'ground'; // rare islands
+                            else if (rand < 0.3) type = 'spike';
+                            else type = 'water';
+                        }
+                    }
+                }
+
+                if (type !== 'empty') {
+                    createTile(x, z, type);
+                }
+            }
+
+            // Coin generation
+            if (!isStartArea && Math.random() < 0.4) {
+                // Generate coin ON the path
+                const cx = pathCenter + (Math.floor(Math.random() * 3) - 1); 
+                const key = `${z},${cx}`;
+                if (world[key] && world[key].type === 'ground') {
+                    createCoin(cx, z);
+                }
+            }
+        }
+
+        function createTile(x, z, type) {
+            const key = `${z},${x}`;
+            if (world[key]) return;
+
+            let geometry, material, mesh;
+            let yPos = 0;
+            const xPos = x * TILE_SIZE;
+            const zPos = z * TILE_SIZE;
+
+            if (type === 'wall') {
+                geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE * 3, TILE_SIZE);
+                material = new THREE.MeshLambertMaterial({ color: 0x444444 });
+                yPos = TILE_SIZE; 
+            } else if (type === 'ground') {
+                geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                material = new THREE.MeshLambertMaterial({ color: 0x7f8c8d });
+                yPos = -TILE_SIZE / 2;
+                // Checkerboard pattern
+                const isCheck = (Math.abs(x) + Math.abs(z)) % 2 === 0;
+                material.color.setHex(isCheck ? 0x95a5a6 : 0x7f8c8d);
+            } else if (type === 'stone') {
+                geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                material = new THREE.MeshLambertMaterial({ color: 0x636e72 });
+                yPos = -TILE_SIZE / 2;
+                type = 'ground'; // Functional ground
+            } else if (type === 'water') {
+                geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE * 0.5, TILE_SIZE);
+                material = new THREE.MeshLambertMaterial({ color: 0x3498db, transparent: true, opacity: 0.8 });
+                yPos = -TILE_SIZE / 2 - 4;
+            } else if (type === 'spike') {
+                geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                material = new THREE.MeshLambertMaterial({ color: 0x555555 });
+                yPos = -TILE_SIZE / 2;
+                
+                // Add Red Spikes
+                const sGeo = new THREE.ConeGeometry(1.5, 3.5, 4);
+                const sMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+                
+                const group = new THREE.Group();
+                group.position.set(xPos, 0, zPos);
+                
+                const base = new THREE.Mesh(geometry, material);
+                base.position.y = yPos;
+                base.receiveShadow = true;
+                group.add(base);
+
+                // 4 small spikes
+                const positions = [[-2.5, -2.5], [2.5, 2.5], [-2.5, 2.5], [2.5, -2.5]];
+                positions.forEach(pos => {
+                    const s = new THREE.Mesh(sGeo, sMat);
+                    s.position.set(pos[0], 1.5, pos[1]);
+                    group.add(s);
+                });
+                
+                group.userData.isGameObj = true;
+                scene.add(group);
+                
+                world[key] = { type: type, mesh: group };
+                return;
+            }
+
+            mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(xPos, yPos, zPos);
+            mesh.receiveShadow = true;
+            if (type === 'wall') mesh.castShadow = true;
+            mesh.userData.isGameObj = true; 
+            
+            scene.add(mesh);
+            world[key] = { type: type, mesh: mesh };
+        }
+
+        function createCoin(x, z) {
+            const geometry = new THREE.CylinderGeometry(2, 2, 0.5, 16);
+            const material = new THREE.MeshPhongMaterial({ color: 0xf1c40f, shininess: 80 });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            mesh.position.set(x * TILE_SIZE, 3, z * TILE_SIZE);
+            mesh.rotation.x = Math.PI/2;
+            mesh.rotation.z = Math.PI/2;
+            mesh.castShadow = true;
+            mesh.userData.isGameObj = true;
+            
+            scene.add(mesh);
+            entities.push({ type: 'coin', mesh: mesh, x: x, z: z, active: true });
+        }
+
+        // --- Controls ---
+
+        function onKeyDown(event) {
+            if (!isGameRunning) return;
+            switch (event.key) {
+                case 'ArrowUp': case 'w': handleInput('up'); break;
+                case 'ArrowDown': case 's': handleInput('down'); break;
+                case 'ArrowLeft': case 'a': handleInput('left'); break;
+                case 'ArrowRight': case 'd': handleInput('right'); break;
+            }
+        }
+
+        function handleInput(direction) {
+            if (isMoving) return;
+
+            let targetX = playerPos.x;
+            let targetZ = playerPos.z;
+
+            // In this coordinate system, Forward is Negative Z
+            if (direction === 'up') targetZ -= 1;
+            if (direction === 'down') targetZ += 1;
+            if (direction === 'left') targetX -= 1;
+            if (direction === 'right') targetX += 1;
+
+            const key = `${targetZ},${targetX}`;
+            const tile = world[key];
+
+            // Collision Check
+            if (tile && tile.type === 'wall') return;
+
+            // Prevent going backwards
+            if (targetZ > minRow + 10) return;
+
+            startMove(targetX, targetZ);
+        }
+
+        function startMove(tx, tz) {
+            isMoving = true;
+            const startTime = Date.now();
+            const startX = player.position.x;
+            const startZ = player.position.z;
+            const endX = tx * TILE_SIZE;
+            const endZ = tz * TILE_SIZE;
+
+            const jumpHeight = 5;
+
+            // Rotation
+            if (tx > playerPos.x) player.rotation.y = -Math.PI / 2;
+            else if (tx < playerPos.x) player.rotation.y = Math.PI / 2;
+            else if (tz < playerPos.z) player.rotation.y = Math.PI; 
+            else if (tz > playerPos.z) player.rotation.y = 0;
+
+            function animateMove() {
+                const now = Date.now();
+                const progress = Math.min((now - startTime) / MOVE_SPEED, 1);
+
+                player.position.x = startX + (endX - startX) * progress;
+                player.position.z = startZ + (endZ - startZ) * progress;
+                
+                player.position.y = (4 * jumpHeight * progress * (1 - progress));
+
+                // Squash/Stretch effect
+                const s = 1 + Math.sin(progress * Math.PI) * 0.2;
+                player.scale.y = 1/s;
+                player.scale.x = s;
+                player.scale.z = s;
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateMove);
+                } else {
+                    player.position.x = endX;
+                    player.position.z = endZ;
+                    player.position.y = 0;
+                    player.scale.set(1, 1, 1);
+                    
+                    playerPos.x = tx;
+                    playerPos.z = tz;
+                    isMoving = false;
+                    onStepComplete();
+                }
+            }
+            animateMove();
+        }
+
+        function onStepComplete() {
+            // Update Generation
+            if (playerPos.z < minRow) {
+                minRow = playerPos.z;
+                // Generate new row
+                generateRow(minRow - RENDER_DISTANCE, false);
+            }
+            
+            const currentDepth = Math.abs(Math.min(0, playerPos.z));
+            document.getElementById('dist-display').innerText = `Depth: ${currentDepth}m`;
+
+            const key = `${playerPos.z},${playerPos.x}`;
+            const tile = world[key];
+
+            // Coins
+            const coinIdx = entities.findIndex(e => e.type === 'coin' && e.active && e.x === playerPos.x && e.z === playerPos.z);
+            if (coinIdx !== -1) {
+                entities[coinIdx].active = false;
+                scene.remove(entities[coinIdx].mesh);
+                score += 10;
+                document.getElementById('score-display').innerText = score;
+            }
+
+            // Hazards
+            if (tile) {
+                if (tile.type === 'water') die("drown");
+                else if (tile.type === 'spike') die("spike");
+            } else {
+                die("void");
+            }
+        }
+
+        function die(reason) {
+            isGameRunning = false;
+            
+            let offset = 0;
+            function animateDeath() {
+                offset += 0.5;
+                player.position.y -= 0.5;
+                if (reason === 'spike') {
+                    player.children[0].material.color.setHex(0xff0000);
+                }
+                player.rotation.z += 0.1;
+                
+                if (offset < 20) requestAnimationFrame(animateDeath);
+                else {
+                    document.getElementById('final-score').innerText = score;
+                    document.getElementById('game-over-screen').classList.remove('hidden');
+                }
+            }
+            animateDeath();
+        }
+
+        function updateCamera() {
+            if (!player) return;
+            const targetX = player.position.x * 0.5;
+            const targetZ = player.position.z + 80; 
+
+            camera.position.z += (targetZ - camera.position.z) * 0.1;
+            camera.position.x += (targetX - camera.position.x) * 0.1;
+            
+            camera.lookAt(camera.position.x, 0, camera.position.z - 110);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            entities.forEach(e => {
+                if (e.active && e.type === 'coin') {
+                    e.mesh.rotation.y += 0.05;
+                    e.mesh.position.y = 3 + Math.sin(Date.now() * 0.005) * 1;
+                }
+            });
+
+            if (isGameRunning && player) {
+                updateCamera();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 90;
+            camera.left = -d * aspect;
+            camera.right = d * aspect;
+            camera.top = d;
+            camera.bottom = -d;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('restart-btn').addEventListener('click', startGame);
+
+        init();
+
+    </script>
+</body>
+</html>
+
+
