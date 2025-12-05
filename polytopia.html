@@ -3,862 +3,630 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Poly-Mini: Fixed & Robust</title>
+    <title>Poly-Mini: Glitch Free</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #87CEEB; user-select: none; -webkit-user-select: none; }
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; user-select: none; -webkit-user-select: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .pointer-events-auto { pointer-events: auto; }
         
-        /* Floating Labels */
+        /* Health Bars */
         .health-bar-container {
             position: absolute;
-            width: 40px;
-            height: 6px;
-            background: #333;
-            border: 1px solid white;
-            border-radius: 3px;
+            width: 36px;
+            height: 5px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 4px;
             pointer-events: none;
-            transform: translate(-50%, -20px);
             opacity: 0.9;
-            transition: top 0.1s, left 0.1s;
+            transform: translate(-50%, -20px);
+            z-index: 10;
         }
         .health-fill {
             height: 100%;
             background: #22c55e;
             width: 100%;
-            transition: width 0.2s;
+            border-radius: 2px;
+            transition: width 0.3s ease-out;
         }
-        
+
+        /* Floating Damage */
         .damage-text {
             position: absolute;
             color: #ff4444;
             font-weight: 900;
-            font-size: 28px;
-            -webkit-text-stroke: 1px white;
+            font-size: 32px;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #fff;
             pointer-events: none;
-            animation: floatUp 1.2s ease-out forwards;
+            z-index: 20;
+            animation: popAndFloat 1.2s ease-out forwards;
         }
-        @keyframes floatUp {
-            0% { transform: translateY(0) scale(1); opacity: 1; }
-            100% { transform: translateY(-50px) scale(1.5); opacity: 0; }
+        @keyframes popAndFloat {
+            0% { transform: translateY(0) scale(0.5); opacity: 0; }
+            20% { transform: translateY(-10px) scale(1.2); opacity: 1; }
+            100% { transform: translateY(-60px) scale(1); opacity: 0; }
         }
 
-        .action-btn { transition: transform 0.1s; }
-        .action-btn:active { transform: scale(0.95); }
+        /* UI Styling */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        
+        .btn-main {
+            transition: all 0.2s;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+        }
+        .btn-main:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+        }
     </style>
 </head>
 <body>
 
     <div id="game-container"></div>
-
-    <!-- HTML Overlay for Health Bars (Dynamic) -->
     <div id="labels-container"></div>
 
-    <!-- UI Overlay -->
     <div id="ui-layer" class="flex flex-col justify-between p-4">
         
         <!-- Top Stats -->
         <div class="flex justify-between items-start pointer-events-auto">
-            <div class="bg-gray-900/90 text-white rounded-xl p-3 shadow-2xl border border-gray-600 flex items-center gap-6 backdrop-blur-sm">
+            <div class="glass-panel text-white rounded-xl p-3 flex items-center gap-6 shadow-xl">
                 <div class="flex flex-col items-center min-w-[50px]">
-                    <span class="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Stars</span>
-                    <span id="stars-display" class="text-3xl font-black text-yellow-400 drop-shadow-md">5</span>
+                    <span class="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Stars</span>
+                    <span id="stars-display" class="text-3xl font-black text-yellow-400 drop-shadow-sm">5</span>
                 </div>
-                <div class="w-px h-10 bg-gray-700"></div>
+                <div class="w-px h-10 bg-gray-600"></div>
                 <div class="flex flex-col items-center min-w-[50px]">
-                    <span class="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Income</span>
+                    <span class="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Income</span>
                     <span id="income-display" class="text-xl font-bold text-green-400">+2</span>
                 </div>
-                <div class="w-px h-10 bg-gray-700"></div>
+                <div class="w-px h-10 bg-gray-600"></div>
                 <div class="flex flex-col items-center min-w-[50px]">
-                    <span class="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Turn</span>
+                    <span class="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Turn</span>
                     <span id="turn-display" class="text-xl font-bold text-blue-300">1</span>
                 </div>
             </div>
             
-            <button onclick="resetGame()" class="bg-red-500/80 hover:bg-red-600 text-white text-xs px-3 py-1 rounded pointer-events-auto shadow-lg backdrop-blur">
-                Reset
+            <button onclick="location.reload()" class="glass-panel hover:bg-red-900/80 text-red-200 text-xs px-4 py-2 rounded pointer-events-auto transition font-bold tracking-wide">
+                RESET
             </button>
         </div>
 
-        <!-- Center Notification -->
-        <div id="notification-area" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center hidden transition-opacity duration-500">
-            <h1 id="turn-banner" class="text-7xl font-black text-white drop-shadow-[0_8px_8px_rgba(0,0,0,0.8)] stroke-black tracking-tighter italic">
+        <!-- Banner -->
+        <div id="notification-area" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center hidden transition-opacity duration-300">
+            <h1 id="turn-banner" class="text-6xl md:text-8xl font-black text-white drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] stroke-black tracking-tighter italic transform skew-x-[-10deg]">
                 YOUR TURN
             </h1>
         </div>
 
         <!-- Bottom Controls -->
-        <div class="flex justify-between items-end w-full pointer-events-auto gap-4">
+        <div class="flex flex-col md:flex-row justify-between items-end w-full pointer-events-auto gap-4">
             
-            <!-- Context Panel -->
-            <div id="selection-panel" class="hidden bg-gray-900/95 text-white rounded-xl p-5 shadow-2xl border-t-4 border-blue-500 w-72 backdrop-blur-md">
-                <div class="flex justify-between items-center mb-3 pb-3 border-b border-gray-700">
+            <!-- Selection Panel -->
+            <div id="selection-panel" class="hidden glass-panel text-white rounded-xl p-5 w-full md:w-80 border-l-4 border-blue-500 transition-all">
+                <div class="flex justify-between items-start mb-4 border-b border-gray-700 pb-3">
                     <div>
-                        <h3 id="sel-title" class="font-bold text-2xl text-white">Warrior</h3>
-                        <div id="sel-subtitle" class="text-xs text-gray-400">Ready for orders</div>
+                        <h3 id="sel-title" class="font-bold text-2xl leading-none mb-1">Warrior</h3>
+                        <div id="sel-subtitle" class="text-xs text-gray-400 uppercase tracking-wide">Ready</div>
                     </div>
-                    <span id="sel-badge" class="font-mono font-bold bg-blue-600 px-2 py-1 rounded text-xs">P1</span>
+                    <div id="sel-badge" class="font-mono text-xs px-2 py-1 rounded bg-blue-600 font-bold">P1</div>
                 </div>
-                
-                <!-- Dynamic Content -->
-                <div id="panel-content" class="grid gap-2"></div>
+                <div id="panel-content" class="grid gap-3"></div>
             </div>
 
             <!-- End Turn -->
-            <button id="end-turn-btn" onclick="endTurn()" class="bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white font-bold py-4 px-10 rounded-2xl text-xl shadow-[0_6px_0_#1e3a8a] active:shadow-none active:translate-y-1.5 transition-all border border-blue-400">
+            <button id="end-turn-btn" onclick="endTurn()" class="btn-main bg-blue-600 hover:bg-blue-500 text-white font-black py-4 px-8 rounded-xl text-xl w-full md:w-auto shadow-xl border-b-4 border-blue-800">
                 END TURN
             </button>
         </div>
     </div>
 
-    <!-- Win Modal -->
+    <!-- Victory Modal -->
     <div id="game-over-modal" class="hidden fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-sm">
-        <h1 id="game-over-title" class="text-7xl font-black text-yellow-400 mb-2 drop-shadow-lg">VICTORY</h1>
-        <p id="game-over-msg" class="text-2xl text-gray-300 mb-8">The square world is yours.</p>
-        <button onclick="location.reload()" class="bg-white text-black hover:scale-105 transition font-bold py-4 px-12 rounded-full text-xl shadow-xl">New Game</button>
+        <h1 id="game-over-title" class="text-6xl md:text-8xl font-black text-yellow-400 mb-4 drop-shadow-xl tracking-tighter">VICTORY</h1>
+        <p class="text-2xl text-gray-300 mb-10 font-light">The square world has been conquered.</p>
+        <button onclick="location.reload()" class="bg-white text-black hover:scale-105 transition-transform font-bold py-4 px-12 rounded-full text-xl shadow-2xl">Play Again</button>
     </div>
 
     <script>
-        // --- Constants ---
-        const GRID_SIZE = 12; 
-        const TILE_SIZE = 10;
-        const COLORS = {
-            WATER: 0x4fc3f7, GRASS: 0x8bc34a, FOREST: 0x2e7d32, MOUNTAIN: 0x8d6e63,
-            P1: 0x2563eb, // Deep Blue
-            P2: 0xdc2626, // Deep Red
-            NEUTRAL: 0x9ca3af,
-            HIGHLIGHT_MOVE: 0x4ade80, // Bright Green
-            HIGHLIGHT_ATTACK: 0xf87171 // Bright Red
+        const CONFIG = {
+            GRID_SIZE: 12,
+            TILE_SIZE: 10,
+            COLORS: {
+                WATER: 0x29b6f6, GRASS: 0x9ccc65, FOREST: 0x33691e, MOUNTAIN: 0x8d6e63,
+                P1: 0x2563eb, P2: 0xdc2626,
+                HIGHLIGHT_MOVE: 0x69f0ae,
+                HIGHLIGHT_ATTACK: 0xff5252
+            }
         };
-        const UNITS = { WARRIOR: { name: 'Warrior', hp: 10, att: 2, def: 2, move: 1, cost: 2 } };
 
-        // --- Global State ---
+        const UNITS = { WARRIOR: { cost: 2, hp: 10, move: 1 } };
+
         let scene, camera, renderer, controls, raycaster, mouse;
-        let objects = []; // Interactable objects (tiles AND units)
-        let tiles = []; 
-        let units = [];
-        let cities = [];
-        let labels = []; // Array of health bar DOM elements
-        
-        let turn = 1;
-        let currentPlayer = 1;
-        let playerStats = {
-            1: { stars: 5, income: 0, cities: 0 },
-            2: { stars: 5, income: 0, cities: 0 }
-        };
-        
-        let selectedUnit = null;
-        let selectedCity = null;
+        let objects = [], tiles = [], units = [], cities = [];
+        let turn = 1, currentPlayer = 1, isAiThinking = false;
+        let playerStats = { 1: { stars: 5 }, 2: { stars: 5 } };
+        let selectedUnit = null, selectedCity = null;
 
-        // --- Initialization ---
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
-            scene.fog = new THREE.Fog(0x87CEEB, 40, 300);
+            scene.fog = new THREE.Fog(0x87CEEB, 200, 600);
 
-            // Camera setup
             const aspect = window.innerWidth / window.innerHeight;
-            const d = 90;
-            camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
-            camera.position.set(120, 120, 120); // Isometric view
+            const d = 100;
+            camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -100, 1000);
+            camera.position.set(100, 100, 100);
             camera.lookAt(scene.position);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, logarithmicDepthBuffer: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
             document.getElementById('game-container').appendChild(renderer.domElement);
 
-            // Light
-            const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+            const ambient = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambient);
+
             const sun = new THREE.DirectionalLight(0xffffff, 0.6);
-            sun.position.set(50, 100, 50);
+            sun.position.set(60, 150, 60);
             sun.castShadow = true;
+            // CRITICAL Z-FIGHTING FIX: Shadow Bias
+            sun.shadow.bias = -0.0005;
+            sun.shadow.normalBias = 0.05;
+            
             sun.shadow.mapSize.width = 2048;
             sun.shadow.mapSize.height = 2048;
-            sun.shadow.camera.left = -100; sun.shadow.camera.right = 100;
-            sun.shadow.camera.top = 100; sun.shadow.camera.bottom = -100;
+            sun.shadow.camera.left = -150; sun.shadow.camera.right = 150;
+            sun.shadow.camera.top = 150; sun.shadow.camera.bottom = -150;
             scene.add(sun);
 
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.maxPolarAngle = Math.PI / 2.1;
+            controls.maxPolarAngle = Math.PI / 2.2;
             controls.minZoom = 0.5; controls.maxZoom = 2;
 
             raycaster = new THREE.Raycaster();
             mouse = new THREE.Vector2();
-
+            
             window.addEventListener('resize', onResize);
             renderer.domElement.addEventListener('pointerdown', onPointerDown);
 
-            generateMap();
+            generateWorld();
             updateUI();
             animate();
         }
 
-        function onResize() {
-            const aspect = window.innerWidth / window.innerHeight;
-            const d = 90;
-            camera.left = -d * aspect; camera.right = d * aspect;
-            camera.top = d; camera.bottom = -d;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // --- Map Generation ---
-        function generateMap() {
-            const boxGeo = new THREE.BoxGeometry(TILE_SIZE * 0.98, TILE_SIZE, TILE_SIZE * 0.98); // Blocky look
+        function generateWorld() {
+            // CRITICAL FIX: 0.98 Scale creates gaps between tiles to prevent side-face z-fighting
+            const boxGeo = new THREE.BoxGeometry(CONFIG.TILE_SIZE * 0.98, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE * 0.98);
+            const waterGeo = new THREE.BoxGeometry(CONFIG.TILE_SIZE * 0.98, CONFIG.TILE_SIZE * 0.8, CONFIG.TILE_SIZE * 0.98);
             
-            for (let x = 0; x < GRID_SIZE; x++) {
+            for(let x=0; x<CONFIG.GRID_SIZE; x++) {
                 tiles[x] = [];
-                for (let z = 0; z < GRID_SIZE; z++) {
+                for(let z=0; z<CONFIG.GRID_SIZE; z++) {
                     let type = 'GRASS';
-                    let h = 0;
                     const r = Math.random();
-                    if (r < 0.12) type = 'WATER';
-                    else if (r > 0.88) type = 'MOUNTAIN';
-                    else if (r > 0.75) type = 'FOREST';
-
-                    // Safety: Corners always grass
-                    if ((x < 3 && z < 3) || (x > GRID_SIZE-4 && z > GRID_SIZE-4)) type = 'GRASS';
-
-                    let y = 0;
-                    if (type === 'WATER') { y = -2; boxGeo.scale(1, 0.8, 1); }
-                    else if (type === 'MOUNTAIN') { y = 5; }
-                    else boxGeo.scale(1,1,1); // reset
-
-                    const mat = new THREE.MeshStandardMaterial({ color: COLORS[type], roughness: 0.8 });
-                    const mesh = new THREE.Mesh(boxGeo, mat);
-                    mesh.position.set(x * TILE_SIZE, y, z * TILE_SIZE);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
+                    if(r < 0.15) type = 'WATER';
+                    else if(r > 0.85) type = 'MOUNTAIN';
+                    else if(r > 0.70) type = 'FOREST';
                     
-                    // Metadata linking
+                    if((x<3 && z<3) || (x > CONFIG.GRID_SIZE-4 && z > CONFIG.GRID_SIZE-4)) type = 'GRASS';
+
+                    let geo = boxGeo;
+                    let y = 0;
+                    let col = CONFIG.COLORS[type];
+
+                    if(type === 'WATER') { geo = waterGeo; y = -2; }
+                    if(type === 'MOUNTAIN') { y = 5; }
+
+                    const mat = new THREE.MeshStandardMaterial({ color: col, flatShading: true, roughness: 0.8 });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(x * CONFIG.TILE_SIZE, y, z * CONFIG.TILE_SIZE);
+                    mesh.receiveShadow = true;
+                    if(type !== 'WATER') mesh.castShadow = true;
+
                     const tileData = { x, z, type, mesh, unit: null, city: null, revealed: false };
                     mesh.userData = { type: 'tile', data: tileData };
-                    
                     scene.add(mesh);
-                    objects.push(mesh); // Important for raycast
+                    objects.push(mesh);
 
-                    // Decorations (visual only, not interactable directly)
-                    if (type === 'FOREST') addTree(mesh);
-                    if (type === 'MOUNTAIN') addSnow(mesh);
+                    if(type === 'FOREST') createTree(mesh);
+                    if(type === 'MOUNTAIN') createSnow(mesh);
 
-                    // Fog
-                    const fogGeo = new THREE.BoxGeometry(TILE_SIZE, 20, TILE_SIZE);
-                    const fogMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 });
-                    const fog = new THREE.Mesh(fogGeo, fogMat);
-                    fog.position.set(x*TILE_SIZE, 10, z*TILE_SIZE);
-                    scene.add(fog);
-                    tileData.fogMesh = fog;
+                    const fogGeo = new THREE.BoxGeometry(CONFIG.TILE_SIZE, 40, CONFIG.TILE_SIZE);
+                    const fogMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+                    const fogMesh = new THREE.Mesh(fogGeo, fogMat);
+                    fogMesh.position.set(x*CONFIG.TILE_SIZE, 20, z*CONFIG.TILE_SIZE);
+                    scene.add(fogMesh);
+                    tileData.fogMesh = fogMesh;
 
                     tiles[x][z] = tileData;
                 }
             }
 
-            // Init Players
-            createCity(1, 1, 1);
-            createCity(GRID_SIZE - 2, GRID_SIZE - 2, 2);
-            revealFog(1, 1, 2);
-            
-            // Center camera
-            controls.target.set(TILE_SIZE*2, 0, TILE_SIZE*2);
+            spawnCity(1, 1, 1);
+            spawnCity(CONFIG.GRID_SIZE-2, CONFIG.GRID_SIZE-2, 2);
+            revealArea(1, 1, 2);
         }
 
-        function addTree(parent) {
-            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.5, 3), new THREE.MeshStandardMaterial({color: 0x5d4037}));
-            trunk.position.y = 5 + 1.5;
-            const leaves = new THREE.Mesh(new THREE.ConeGeometry(3.5, 8), new THREE.MeshStandardMaterial({color: 0x2e7d32}));
-            leaves.position.y = 5 + 5;
+        function createTree(parent) {
+            // FIX: Raised Y positions slightly to avoid intersecting the ground plane exactly
+            const trunk = new THREE.Mesh(
+                new THREE.CylinderGeometry(1, 1.5, 4, 6), 
+                new THREE.MeshStandardMaterial({color: 0x4e342e})
+            );
+            trunk.position.y = 5 + 2 + 0.05; // Base Y + Half Height + Epsilon
+            trunk.castShadow = true;
+            
+            const leaves = new THREE.Mesh(
+                new THREE.ConeGeometry(4, 9, 7), 
+                new THREE.MeshStandardMaterial({color: 0x2e7d32, flatShading: true})
+            );
+            leaves.position.y = 5 + 6 + 0.05;
+            leaves.castShadow = true;
+            
+            trunk.userData = { parentTile: parent };
+            leaves.userData = { parentTile: parent };
+            
             parent.add(trunk, leaves);
         }
 
-        function addSnow(parent) {
-            const snow = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE*0.98, 2, TILE_SIZE*0.98), new THREE.MeshStandardMaterial({color: 0xffffff}));
-            snow.position.y = TILE_SIZE/2 + 1;
+        function createSnow(parent) {
+            // CRITICAL Z-FIGHTING FIX: Raised Y by 0.05 so snow bottom isn't co-planar with mountain top
+            const snow = new THREE.Mesh(
+                new THREE.BoxGeometry(CONFIG.TILE_SIZE * 0.98, 2, CONFIG.TILE_SIZE * 0.98),
+                new THREE.MeshStandardMaterial({color: 0xffffff})
+            );
+            snow.position.y = 5 + 1 + 0.05; // Mountain Top + Half Snow Height + Epsilon
             parent.add(snow);
         }
 
-        // --- Entities ---
-        function createCity(x, z, owner) {
+        function spawnCity(x, z, owner) {
             const t = tiles[x][z];
-            const group = new THREE.Group();
+            const g = new THREE.Group();
+            const col = owner === 1 ? CONFIG.COLORS.P1 : CONFIG.COLORS.P2;
             
-            const color = owner === 1 ? COLORS.P1 : COLORS.P2;
-            const body = new THREE.Mesh(new THREE.BoxGeometry(6,6,6), new THREE.MeshStandardMaterial({color: color}));
+            const body = new THREE.Mesh(new THREE.BoxGeometry(6,6,6), new THREE.MeshStandardMaterial({color: col}));
             body.position.y = 5;
+            body.castShadow = true;
+            
             const roof = new THREE.Mesh(new THREE.ConeGeometry(5,4,4), new THREE.MeshStandardMaterial({color: 0x3e2723}));
             roof.position.y = 10;
             roof.rotation.y = Math.PI/4;
+            roof.castShadow = true;
             
-            group.add(body, roof);
-            group.position.set(x*TILE_SIZE, 0, z*TILE_SIZE);
-            scene.add(group);
+            g.add(body, roof);
+            g.position.set(x*CONFIG.TILE_SIZE, 0, z*CONFIG.TILE_SIZE);
+            scene.add(g);
             
-            const city = { x, z, owner, mesh: group, level: 1 };
+            const city = { x, z, owner, mesh: g, level: 1 };
             t.city = city;
             cities.push(city);
-            
-            // Initial Spawn
-            if (!t.unit) spawnUnit(x, z, 'WARRIOR', owner);
+            if(!t.unit) spawnUnit(x, z, 'WARRIOR', owner);
         }
 
         function spawnUnit(x, z, type, owner) {
-            const tile = tiles[x][z];
-            if (tile.unit) return;
+            const t = tiles[x][z];
+            if(t.unit) return;
 
-            const u = {
-                id: Math.random(), type, owner, x, z,
-                hp: 10, maxHp: 10, moved: false, attacked: false
-            };
+            const u = { id: Math.random(), type, owner, x, z, hp: 10, maxHp: 10, moved: false };
+            const g = new THREE.Group();
+            const col = owner === 1 ? CONFIG.COLORS.P1 : CONFIG.COLORS.P2;
 
-            // Model
-            const group = new THREE.Group();
-            const color = owner === 1 ? COLORS.P1 : COLORS.P2;
-            
-            // Body (The part that changes color)
-            const bodyMat = new THREE.MeshStandardMaterial({color: color}); 
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 4, 8), bodyMat);
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 4, 8), new THREE.MeshStandardMaterial({color: col}));
             body.position.y = 2;
-            body.name = "body"; // Tag for recoloring
+            body.castShadow = true;
+            body.name = 'body';
 
-            // Head (Always skin)
             const head = new THREE.Mesh(new THREE.SphereGeometry(1.8), new THREE.MeshStandardMaterial({color: 0xffccaa}));
             head.position.y = 5;
+            head.castShadow = true;
 
-            // Sword
-            const sword = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.5, 0.5), new THREE.MeshStandardMaterial({color: 0xcccccc}));
+            const sword = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.5, 0.5), new THREE.MeshStandardMaterial({color: 0xeeeeee}));
             sword.position.set(2, 3, 1);
             sword.rotation.x = -0.5;
+            sword.castShadow = true;
 
-            // Selection Ring (Hidden by default)
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(3, 0.2, 4, 24), new THREE.MeshBasicMaterial({color: 0xffff00}));
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(3, 0.2, 16, 32), new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 0.8}));
             ring.rotation.x = Math.PI/2;
-            ring.position.y = 0.5;
+            ring.position.y = 0.2; // Slightly above ground
             ring.visible = false;
-            ring.name = "ring";
+            ring.name = 'ring';
 
-            group.add(body, head, sword, ring);
-            group.position.set(x*TILE_SIZE, 2, z*TILE_SIZE);
-            
-            // IMPORTANT: UserData for Raycasting
-            group.userData = { type: 'unit', data: u };
-            // Add children to userData so raycast works on head/sword
-            group.children.forEach(c => c.userData = { type: 'unit', data: u });
+            g.add(body, head, sword, ring);
+            g.position.set(x*CONFIG.TILE_SIZE, 2, z*CONFIG.TILE_SIZE);
+            g.userData = { type: 'unit', data: u };
+            g.children.forEach(c => c.userData = { type: 'unit', data: u });
 
-            scene.add(group);
-            objects.push(group); // Add to interactables!
-            
-            u.mesh = group;
-            tile.unit = u;
+            scene.add(g);
+            objects.push(g);
+            u.mesh = g;
+            t.unit = u;
             units.push(u);
-
-            // Add Health Bar
             createHealthBar(u);
             
-            if (owner === 1) revealFog(x, z, 1);
+            if(owner === 1) revealArea(x, z, 1);
         }
 
-        function createHealthBar(unit) {
+        function createHealthBar(u) {
             const div = document.createElement('div');
             div.className = 'health-bar-container';
             div.innerHTML = '<div class="health-fill"></div>';
             document.getElementById('labels-container').appendChild(div);
-            
-            // Store reference in unit for updates
-            unit.hpBar = div;
-            unit.hpBarFill = div.querySelector('.health-fill');
-            labels.push(unit);
+            u.hpBar = div;
+            u.hpBarFill = div.querySelector('.health-fill');
         }
 
-        // --- Core Logic ---
-        function revealFog(cx, cz, r) {
-            for (let x = cx - r; x <= cx + r; x++) {
-                for (let z = cz - r; z <= cz + r; z++) {
-                    if (x >= 0 && x < GRID_SIZE && z >= 0 && z < GRID_SIZE) {
-                        const t = tiles[x][z];
-                        if (!t.revealed) {
-                            t.revealed = true;
-                            if (t.fogMesh) {
-                                scene.remove(t.fogMesh);
-                                t.fogMesh = null;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        function updateEconomy() {
-            [1, 2].forEach(p => {
-                const myCities = cities.filter(c => c.owner === p).length;
-                playerStats[p].cities = myCities;
-                playerStats[p].income = myCities + 1; // +1 base
-            });
-            document.getElementById('stars-display').innerText = playerStats[1].stars;
-            document.getElementById('income-display').innerText = '+' + playerStats[1].income;
-            document.getElementById('turn-display').innerText = turn;
-        }
-
-        // --- Interaction ---
+        // --- Logic ---
         function onPointerDown(e) {
-            if (currentPlayer !== 1) return;
+            if(currentPlayer !== 1 || isAiThinking) return;
 
             mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
-            // Recursive = true is CRITICAL for hitting children (trees, unit heads)
             const intersects = raycaster.intersectObjects(objects, true);
 
-            if (intersects.length > 0) {
-                // Find first valid game object
-                let hit = null;
-                // We want the closest Unit or Tile. 
-                // Since unit meshes are on top, they should be first.
-                for (let i = 0; i < intersects.length; i++) {
-                    // Traverse up to find userData
-                    let obj = intersects[i].object;
-                    while (obj && !obj.userData.type && obj.parent) {
-                        obj = obj.parent;
-                    }
-                    if (obj && obj.userData.type) {
-                        hit = obj;
-                        break;
-                    }
+            if(intersects.length > 0) {
+                let unitHit = null, tileHit = null;
+                for(let hit of intersects) {
+                    let obj = hit.object;
+                    while(obj && !obj.userData.type && obj.parent) obj = obj.parent;
+                    if(obj && obj.userData.type === 'unit') { unitHit = obj.userData.data; break; }
+                    if(obj && obj.userData.type === 'tile') { if(!tileHit) tileHit = obj.userData.data; }
                 }
 
-                if (!hit) return;
-
-                const type = hit.userData.type;
-                const data = hit.userData.data;
-
-                if (type === 'unit') {
-                    handleUnitClick(data);
-                } else if (type === 'tile') {
-                    handleTileClick(data);
-                }
+                if(unitHit) handleUnitClick(unitHit);
+                else if(tileHit) handleTileClick(tileHit);
             }
         }
 
-        function handleUnitClick(clickedUnit) {
-            // Case 1: Attacking an enemy
-            if (selectedUnit && selectedUnit.owner === 1 && clickedUnit.owner !== 1) {
-                // Check range
-                const dist = Math.abs(selectedUnit.x - clickedUnit.x) + Math.abs(selectedUnit.z - clickedUnit.z);
-                if (dist <= 1 && !selectedUnit.attacked) {
-                    attack(selectedUnit, clickedUnit);
-                    return;
-                }
-            }
-
-            // Case 2: Selecting my unit
-            if (clickedUnit.owner === 1) {
-                selectUnit(clickedUnit);
-            } else {
-                // Info on enemy
+        function handleUnitClick(u) {
+            if(selectedUnit && selectedUnit.owner === 1 && u.owner !== 1) {
+                const dist = Math.abs(selectedUnit.x - u.x) + Math.abs(selectedUnit.z - u.z);
+                if(dist === 1 && !selectedUnit.moved) performAttack(selectedUnit, u);
+            } else if(u.owner === 1) selectUnit(u);
+            else {
                 deselect();
-                showPanel("Enemy Warrior", "bg-red-600", "Enemy Unit", 
-                    `<div class="text-sm">HP: ${clickedUnit.hp}/${clickedUnit.maxHp}</div>`);
+                updatePanel("Enemy", "bg-red-600", "P2 Unit", `<div class="text-lg text-center font-mono">${u.hp}/${u.maxHp} HP</div>`);
             }
         }
 
-        function handleTileClick(tile) {
-            if (selectedUnit && tile.highlight === 'move') {
-                moveUnit(selectedUnit, tile.x, tile.z);
-            } else if (tile.city && tile.city.owner === 1) {
-                selectCity(tile.city);
-            } else {
-                deselect();
-                showPanel(tile.type, "bg-gray-600", "Terrain", `<div class="text-gray-400 text-sm italic">Nothing interesting here.</div>`);
-            }
-        }
-
-        // --- Selection & Actions ---
-        function deselect() {
-            if (selectedUnit) {
-                // Hide ring
-                const ring = selectedUnit.mesh.getObjectByName('ring');
-                if (ring) ring.visible = false;
-            }
-            selectedUnit = null;
-            selectedCity = null;
-            
-            // Clear tile highlights
-            tiles.flat().forEach(t => {
-                t.mesh.material.emissive.setHex(0x000000);
-                t.highlight = null;
-            });
-            
-            document.getElementById('selection-panel').classList.add('hidden');
+        function handleTileClick(t) {
+            if(t.unit && t.unit.owner === 1) { selectUnit(t.unit); return; }
+            if(selectedUnit && t.highlight === 'move') moveUnit(selectedUnit, t.x, t.z);
+            else if(t.city && t.city.owner === 1) selectCity(t.city);
+            else deselect();
         }
 
         function selectUnit(u) {
-            deselect(); // clear old
+            deselect();
             selectedUnit = u;
-            
-            // Show Ring
             const ring = u.mesh.getObjectByName('ring');
-            if (ring) ring.visible = true;
+            if(ring) ring.visible = true;
 
-            // Highlight moves
-            if (!u.moved) {
-                const moves = [
-                    {x:u.x+1, z:u.z}, {x:u.x-1, z:u.z},
-                    {x:u.x, z:u.z+1}, {x:u.x, z:u.z-1}
-                ];
+            if(!u.moved) {
+                const moves = [{x:u.x+1, z:u.z}, {x:u.x-1, z:u.z}, {x:u.x, z:u.z+1}, {x:u.x, z:u.z-1}];
                 moves.forEach(m => {
-                    if (isValidMove(m.x, m.z)) {
+                    if(isValidMove(m.x, m.z)) {
                         const t = tiles[m.x][m.z];
-                        t.mesh.material.emissive.setHex(COLORS.HIGHLIGHT_MOVE);
+                        t.mesh.material.emissive.setHex(CONFIG.COLORS.HIGHLIGHT_MOVE);
                         t.highlight = 'move';
                     }
                 });
             }
 
-            // Context Actions
-            let html = `<div class="mb-2">HP: <span class="text-green-400 font-mono">${u.hp}/${u.maxHp}</span></div>`;
-            
-            // Capture logic
+            let content = `<div class="flex justify-between items-center bg-gray-800 p-2 rounded mb-2"><span>Health</span><span class="text-green-400 font-mono font-bold">${u.hp}/${u.maxHp}</span></div>`;
             const t = tiles[u.x][u.z];
-            if (t.city && t.city.owner !== 1) {
-                html += `<button onclick="captureAction()" class="w-full bg-purple-600 hover:bg-purple-500 py-2 rounded font-bold action-btn">Capture City</button>`;
-            } else if (u.moved) {
-                html += `<div class="text-gray-500 text-sm">Unit exhausted.</div>`;
-            } else {
-                html += `<div class="text-blue-300 text-sm">Select a green tile to move.</div>`;
-            }
-
-            showPanel("Warrior", "bg-blue-600", "Your Unit", html);
+            if(t.city && t.city.owner !== 1) content += `<button onclick="captureCity()" class="btn-main w-full bg-purple-600 hover:bg-purple-500 py-3 rounded font-bold text-white shadow-lg animate-pulse">Capture City</button>`;
+            else if(u.moved) content += `<div class="text-center text-gray-500 italic">Unit exhausted.</div>`;
+            else content += `<div class="text-center text-blue-300 text-sm">Select green tiles to move.</div>`;
+            updatePanel("Warrior", "bg-blue-600", "P1 Unit", content);
         }
 
         function selectCity(c) {
             deselect();
             selectedCity = c;
+            const cost = UNITS.WARRIOR.cost;
+            const canAfford = playerStats[1].stars >= cost;
+            const isBlocked = tiles[c.x][c.z].unit !== null;
+            let btnClass = (canAfford && !isBlocked) ? "bg-green-600 hover:bg-green-500 text-white" : "bg-gray-700 text-gray-400 cursor-not-allowed";
             
-            const canTrain = playerStats[1].stars >= UNITS.WARRIOR.cost;
-            const tile = tiles[c.x][c.z];
-            const isBlocked = tile.unit !== null;
-
-            let btnClass = (canTrain && !isBlocked) ? "bg-green-600 hover:bg-green-500" : "bg-gray-600 opacity-50 cursor-not-allowed";
-            let warning = isBlocked ? "<div class='text-red-400 text-xs mt-1'>Tile occupied! Move unit first.</div>" : "";
-
-            let html = `
-                <div class="mb-2 text-sm">Generates +1 ⭐/turn</div>
-                <button onclick="trainAction()" class="w-full ${btnClass} py-2 rounded font-bold flex justify-between px-4 action-btn">
-                    <span>Train Warrior</span>
-                    <span>${UNITS.WARRIOR.cost}⭐</span>
-                </button>
-                ${warning}
-            `;
-            showPanel("City", "bg-blue-500", `Level ${c.level}`, html);
-        }
-
-        function isValidMove(x, z) {
-            if (x < 0 || x >= GRID_SIZE || z < 0 || z >= GRID_SIZE) return false;
-            const t = tiles[x][z];
-            if (!t.revealed) return false;
-            if (t.type === 'WATER' || t.type === 'MOUNTAIN') return false;
-            if (t.unit) return false;
-            return true;
+            let content = `<div class="text-sm text-gray-400 mb-2">Income: +1 ⭐</div><button onclick="trainUnit()" class="btn-main w-full py-3 rounded font-bold flex justify-between px-4 ${btnClass}"><span>Train Warrior</span><span>${cost} ⭐</span></button>`;
+            if(isBlocked) content += `<div class="text-xs text-red-400 mt-1 text-center">Unit blocking city.</div>`;
+            updatePanel("City", "bg-blue-600", `Level ${c.level}`, content);
         }
 
         function moveUnit(u, x, z) {
-            // Logic
             tiles[u.x][u.z].unit = null;
             u.x = x; u.z = z;
             tiles[x][z].unit = u;
             u.moved = true;
-
-            // Animation (instant jump for now, but smooth visual)
-            u.mesh.position.set(x * TILE_SIZE, 2, z * TILE_SIZE);
-            
-            // Tint body to show exhausted
-            const body = u.mesh.getObjectByName('body');
-            if (body) body.material.color.setHex(0x555555); // Grey
-
-            revealFog(x, z, 1);
-            
-            // Re-select to show capture options if any
-            selectUnit(u); 
+            u.mesh.position.set(x * CONFIG.TILE_SIZE, 2, z * CONFIG.TILE_SIZE);
+            u.mesh.getObjectByName('body').material.color.setHex(0x777777);
+            revealArea(x, z, 1);
+            selectUnit(u);
         }
 
-        function attack(attacker, defender) {
-            // Dmg calc
-            const dmg = 4;
-            defender.hp -= dmg;
-            showDamage(defender, dmg);
-            attacker.moved = true;
-            attacker.attacked = true;
-
-            // Exhaust color
-            const body = attacker.mesh.getObjectByName('body');
-            if (body) body.material.color.setHex(0x555555);
-
-            if (defender.hp <= 0) {
-                killUnit(defender);
-                moveUnit(attacker, defender.x, defender.z); // Advance
-            } else {
-                // Retaliate
-                const ret = 2;
-                attacker.hp -= ret;
-                showDamage(attacker, ret);
-                if (attacker.hp <= 0) killUnit(attacker);
+        function performAttack(att, def) {
+            const dmg = att.hp > 5 ? 4 : 2;
+            def.hp -= dmg;
+            showFloatingText(`-${dmg}`, def.mesh.position);
+            att.moved = true;
+            att.mesh.getObjectByName('body').material.color.setHex(0x777777);
+            
+            if(def.hp <= 0) { killUnit(def); moveUnit(att, def.x, def.z); }
+            else {
+                const ret = def.hp > 5 ? 2 : 1;
+                att.hp -= ret;
+                showFloatingText(`-${ret}`, att.mesh.position);
+                if(att.hp <= 0) killUnit(att);
             }
             deselect();
             checkWin();
         }
 
-        function killUnit(u) {
-            scene.remove(u.mesh);
-            // Remove from interactables
-            const idx = objects.indexOf(u.mesh);
-            if (idx > -1) objects.splice(idx, 1);
-            
-            tiles[u.x][u.z].unit = null;
-            units = units.filter(unit => unit !== u);
-            
-            // Remove HP bar
-            if (u.hpBar) u.hpBar.remove();
-        }
-
-        function captureAction() {
-            if (!selectedUnit) return;
-            const c = tiles[selectedUnit.x][selectedUnit.z].city;
-            c.owner = 1;
-            c.mesh.children[0].material.color.setHex(COLORS.P1); // Change base color
+        function captureCity() {
+            if(!selectedUnit) return;
+            const t = tiles[selectedUnit.x][selectedUnit.z];
+            t.city.owner = 1;
+            t.city.mesh.children[0].material.color.setHex(CONFIG.COLORS.P1);
             selectedUnit.moved = true;
-            selectedUnit.attacked = true;
+            selectedUnit.mesh.getObjectByName('body').material.color.setHex(0x777777);
+            updateUI();
             deselect();
-            updateEconomy();
             checkWin();
         }
 
-        function trainAction() {
-            if (!selectedCity) return;
-            if (playerStats[1].stars >= UNITS.WARRIOR.cost) {
+        function trainUnit() {
+            if(!selectedCity || tiles[selectedCity.x][selectedCity.z].unit) return;
+            if(playerStats[1].stars >= UNITS.WARRIOR.cost) {
                 playerStats[1].stars -= UNITS.WARRIOR.cost;
                 spawnUnit(selectedCity.x, selectedCity.z, 'WARRIOR', 1);
                 const u = tiles[selectedCity.x][selectedCity.z].unit;
-                u.moved = true; // Cannot move turn 1
-                u.mesh.getObjectByName('body').material.color.setHex(0x555555);
-                updateEconomy();
+                u.moved = true;
+                u.mesh.getObjectByName('body').material.color.setHex(0x777777);
+                updateUI();
                 selectCity(selectedCity);
             }
         }
 
-        // --- Turn System ---
         function endTurn() {
-            if (currentPlayer !== 1) return;
-            
-            // Restore Player 1 units
-            units.forEach(u => {
-                if (u.owner === 1) {
-                    u.moved = false; 
-                    u.attacked = false;
-                    // FIX: Restore correct color to BODY only
-                    u.mesh.getObjectByName('body').material.color.setHex(COLORS.P1);
-                }
-            });
-
-            playerStats[1].stars += playerStats[1].income;
-            currentPlayer = 2;
-            turn++;
+            if(currentPlayer !== 1) return;
+            units.forEach(u => { if(u.owner === 1) { u.moved = false; u.mesh.getObjectByName('body').material.color.setHex(CONFIG.COLORS.P1); } });
+            playerStats[1].stars += getIncome(1);
+            currentPlayer = 2; isAiThinking = true; turn++;
             updateUI();
-            
             showBanner("ENEMY TURN");
-            setTimeout(aiTurn, 1000);
+            setTimeout(runAi, 1200);
         }
 
-        function aiTurn() {
-            // 1. Train
+        function runAi() {
             cities.filter(c => c.owner === 2).forEach(c => {
                 const t = tiles[c.x][c.z];
-                if (!t.unit && playerStats[2].stars >= 2) {
-                    playerStats[2].stars -= 2;
-                    spawnUnit(c.x, c.z, 'WARRIOR', 2);
+                if(!t.unit && playerStats[2].stars >= 2) {
+                    playerStats[2].stars -= 2; spawnUnit(c.x, c.z, 'WARRIOR', 2);
                 }
             });
 
-            // 2. Move/Attack
             const aiUnits = units.filter(u => u.owner === 2);
             let delay = 0;
-
             aiUnits.forEach(u => {
-                delay += 600;
+                delay += 800;
                 setTimeout(() => {
-                    if (u.hp <= 0) return; // Dead
-
-                    // Simple logic: Find closest enemy or enemy city
-                    // 1. Check attack
-                    const adj = [
-                        {x:u.x+1, z:u.z}, {x:u.x-1, z:u.z}, {x:u.x, z:u.z+1}, {x:u.x, z:u.z-1}
-                    ];
-                    
+                    if(u.hp <= 0) return;
+                    const adj = [{x:u.x+1,z:u.z}, {x:u.x-1,z:u.z}, {x:u.x,z:u.z+1}, {x:u.x,z:u.z-1}];
                     let target = null;
-                    for (let p of adj) {
-                        if (p.x >=0 && p.x < GRID_SIZE && p.z >=0 && p.z < GRID_SIZE) {
+                    for(let p of adj) {
+                        if(isValidCoord(p.x, p.z)) {
                             const t = tiles[p.x][p.z];
-                            if (t.unit && t.unit.owner === 1) {
-                                target = t.unit;
-                                break;
-                            }
+                            if(t.unit && t.unit.owner === 1) target = t.unit;
                         }
                     }
-
-                    if (target) {
-                        attack(u, target);
-                    } else {
-                        // Move
-                        // Find valid move that minimizes distance to 0,0 (Player base approx)
-                        const valid = adj.filter(p => isValidMoveAI(p.x, p.z));
-                        if (valid.length > 0) {
-                            valid.sort((a,b) => (a.x+a.z) - (b.x+b.z)); // simple heuristic
+                    if(target) performAttack(u, target);
+                    else {
+                        const valid = adj.filter(p => isValidCoord(p.x, p.z) && !tiles[p.x][p.z].unit && tiles[p.x][p.z].type !== 'WATER' && tiles[p.x][p.z].type !== 'MOUNTAIN');
+                        if(valid.length > 0) {
+                            valid.sort((a,b) => (a.x+a.z) - (b.x+b.z));
                             moveUnit(u, valid[0].x, valid[0].z);
-                            
-                            // Capture?
                             const t = tiles[valid[0].x][valid[0].z];
-                            if (t.city && t.city.owner === 1) {
-                                t.city.owner = 2;
-                                t.city.mesh.children[0].material.color.setHex(COLORS.P2);
-                                checkWin();
+                            if(t.city && t.city.owner === 1) {
+                                t.city.owner = 2; t.city.mesh.children[0].material.color.setHex(CONFIG.COLORS.P2); checkWin();
                             }
                         }
                     }
-
-                    // Reset color (AI units don't really need grey out visual, but consistent)
                     u.moved = false;
-                    u.mesh.getObjectByName('body').material.color.setHex(COLORS.P2);
-
+                    u.mesh.getObjectByName('body').material.color.setHex(CONFIG.COLORS.P2);
                 }, delay);
             });
 
             setTimeout(() => {
-                playerStats[2].stars += playerStats[2].income;
-                currentPlayer = 1;
-                updateEconomy();
-                showBanner("YOUR TURN");
-                updateUI();
+                playerStats[2].stars += getIncome(2);
+                currentPlayer = 1; isAiThinking = false;
+                updateUI(); showBanner("YOUR TURN");
             }, delay + 1000);
         }
 
-        function isValidMoveAI(x, z) {
-            if (x < 0 || x >= GRID_SIZE || z < 0 || z >= GRID_SIZE) return false;
-            const t = tiles[x][z];
-            if (t.type === 'WATER' || t.type === 'MOUNTAIN') return false;
-            if (t.unit) return false;
-            return true;
+        function revealArea(cx, cz, r) {
+            for(let x = cx-r; x <= cx+r; x++) {
+                for(let z = cz-r; z <= cz+r; z++) {
+                    if(isValidCoord(x, z)) {
+                        const t = tiles[x][z];
+                        if(!t.revealed) { t.revealed = true; if(t.fogMesh) { scene.remove(t.fogMesh); t.fogMesh = null; } }
+                    }
+                }
+            }
         }
 
-        // --- Helpers ---
-        function showPanel(title, colorClass, subtitle, content) {
-            const p = document.getElementById('selection-panel');
-            p.classList.remove('hidden');
+        // Utils
+        function getIncome(p) { return cities.filter(city => city.owner === p).length + 1; }
+        function isValidMove(x, z) { return isValidCoord(x, z) && tiles[x][z].revealed && !tiles[x][z].unit && tiles[x][z].type !== 'WATER' && tiles[x][z].type !== 'MOUNTAIN'; }
+        function isValidCoord(x, z) { return x >= 0 && x < CONFIG.GRID_SIZE && z >= 0 && z < CONFIG.GRID_SIZE; }
+        function killUnit(u) { scene.remove(u.mesh); objects = objects.filter(o => o !== u.mesh); tiles[u.x][u.z].unit = null; units = units.filter(un => un !== u); if(u.hpBar) u.hpBar.remove(); }
+        function deselect() {
+            if(selectedUnit) { const r = selectedUnit.mesh.getObjectByName('ring'); if(r) r.visible = false; }
+            selectedUnit = null; selectedCity = null;
+            tiles.flat().forEach(t => { t.mesh.material.emissive.setHex(0x000000); t.highlight = null; });
+            document.getElementById('selection-panel').classList.add('hidden');
+        }
+        function updatePanel(title, color, sub, content) {
+            const p = document.getElementById('selection-panel'); p.classList.remove('hidden');
             document.getElementById('sel-title').innerText = title;
-            document.getElementById('sel-badge').className = `font-mono font-bold px-2 py-1 rounded text-xs text-white ${colorClass}`;
-            document.getElementById('sel-badge').innerText = subtitle;
+            const b = document.getElementById('sel-badge'); b.innerText = sub; b.className = `font-mono text-xs px-2 py-1 rounded font-bold text-white ${color}`;
             document.getElementById('panel-content').innerHTML = content;
         }
-
-        function showDamage(unit, amount) {
-            const div = document.createElement('div');
-            div.className = 'damage-text';
-            div.innerText = `-${amount}`;
-            document.body.appendChild(div);
-            
-            // Project position
-            const pos = unit.mesh.position.clone();
-            pos.y += 5;
-            pos.project(camera);
-            const x = (pos.x * .5 + .5) * window.innerWidth;
-            const y = (-(pos.y * .5) + .5) * window.innerHeight;
-            
-            div.style.left = x + 'px';
-            div.style.top = y + 'px';
-            
-            setTimeout(() => div.remove(), 1200);
+        function showFloatingText(text, pos) {
+            const d = document.createElement('div'); d.className = 'damage-text'; d.innerText = text; document.body.appendChild(d);
+            const v = pos.clone().add(new THREE.Vector3(0,5,0)); v.project(camera);
+            d.style.left = ((v.x * .5 + .5) * window.innerWidth) + 'px'; d.style.top = ((-(v.y * .5) + .5) * window.innerHeight) + 'px';
+            setTimeout(() => d.remove(), 1200);
         }
-
-        function showBanner(text) {
-            const el = document.getElementById('notification-area');
-            document.getElementById('turn-banner').innerText = text;
-            el.classList.remove('hidden');
-            el.classList.remove('opacity-0');
-            setTimeout(() => el.classList.add('opacity-0'), 1500);
-            setTimeout(() => el.classList.add('hidden'), 2000);
-        }
-
-        function checkWin() {
-            const p1c = cities.filter(c => c.owner === 1).length;
-            const p1u = units.filter(u => u.owner === 1).length;
-            
-            if (p1c === 0 && p1u === 0) {
-                alert("Game Over! You lost.");
-                location.reload();
-            }
-            
-            const p2c = cities.filter(c => c.owner === 2).length;
-            const p2u = units.filter(u => u.owner === 2).length;
-             if (p2c === 0 && p2u === 0) {
-                 document.getElementById('game-over-modal').classList.remove('hidden');
-             }
-        }
-
-        function resetGame() {
-            location.reload();
-        }
-
         function updateUI() {
-            updateEconomy();
+            document.getElementById('stars-display').innerText = playerStats[1].stars;
+            document.getElementById('income-display').innerText = '+' + getIncome(1);
+            document.getElementById('turn-display').innerText = turn;
             const btn = document.getElementById('end-turn-btn');
-            if (currentPlayer === 1) {
-                btn.innerText = "END TURN";
-                btn.disabled = false;
-                btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else {
-                btn.innerText = "WAIT...";
-                btn.disabled = true;
-                btn.classList.add('opacity-50', 'cursor-not-allowed');
-            }
+            if(currentPlayer === 1) { btn.innerText = "END TURN"; btn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+            else { btn.innerText = "ENEMY TURN..."; btn.classList.add('opacity-50', 'cursor-not-allowed'); }
         }
-
+        function showBanner(t) {
+            const b = document.getElementById('notification-area'); document.getElementById('turn-banner').innerText = t;
+            b.classList.remove('hidden'); b.classList.remove('opacity-0');
+            setTimeout(() => b.classList.add('opacity-0'), 1500); setTimeout(() => b.classList.add('hidden'), 1800);
+        }
+        function checkWin() {
+            const p1c = cities.filter(c => c.owner === 1).length, p1u = units.filter(u => u.owner === 1).length;
+            if(p1c === 0 && p1u === 0) { alert("You Lost!"); location.reload(); }
+            const p2c = cities.filter(c => c.owner === 2).length, p2u = units.filter(u => u.owner === 2).length;
+            if(p2c === 0 && p2u === 0) document.getElementById('game-over-modal').classList.remove('hidden');
+        }
+        function onResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -100 * aspect; camera.right = 100 * aspect;
+            camera.top = 100; camera.bottom = -100;
+            camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
+        }
         function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-            
-            // Sync Health Bars
+            requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera);
             units.forEach(u => {
-                if (u.hpBar && u.hpBarFill) {
-                    // Update width
-                    const pct = (u.hp / u.maxHp) * 100;
-                    u.hpBarFill.style.width = pct + '%';
-                    u.hpBarFill.style.background = pct < 40 ? '#ef4444' : '#22c55e';
-                    
-                    // Update Position
-                    const pos = u.mesh.position.clone();
-                    pos.y += 8;
-                    pos.project(camera);
-                    
-                    if (pos.z > 1) { // Behind camera
-                        u.hpBar.style.display = 'none';
-                    } else {
-                        u.hpBar.style.display = 'block';
-                        const x = (pos.x * .5 + .5) * window.innerWidth;
-                        const y = (-(pos.y * .5) + .5) * window.innerHeight;
-                        u.hpBar.style.left = x + 'px';
-                        u.hpBar.style.top = y + 'px';
-                    }
+                if(u.hpBar) {
+                    const pct = (u.hp / u.maxHp) * 100; u.hpBarFill.style.width = pct + '%'; u.hpBarFill.style.background = pct < 40 ? '#ef4444' : '#22c55e';
+                    const v = u.mesh.position.clone().add(new THREE.Vector3(0,8,0)); v.project(camera);
+                    if(v.z > 1) u.hpBar.style.display = 'none';
+                    else { u.hpBar.style.display = 'block'; u.hpBar.style.left = ((v.x * .5 + .5) * window.innerWidth) + 'px'; u.hpBar.style.top = ((-(v.y * .5) + .5) * window.innerHeight) + 'px'; }
                 }
             });
         }
-
         init();
     </script>
 </body>
