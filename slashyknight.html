@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Slashy Knight Prototype</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #333; font-family: 'Courier New', Courier, monospace; }
+        #canvas-container { width: 100%; height: 100vh; display: block; }
+        
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #score-board {
+            position: absolute;
+            top: 20px;
+            font-size: 40px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        #start-screen, #game-over-screen {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            pointer-events: auto; /* Enable clicks on buttons */
+        }
+
+        h1 { color: #f1c40f; margin: 0 0 10px 0; text-transform: uppercase; font-size: 32px; letter-spacing: 2px; }
+        p { color: white; margin: 10px 0; font-size: 18px; }
+        
+        .btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: inherit;
+            font-weight: bold;
+            box-shadow: 0 4px 0 #c0392b;
+            transition: transform 0.1s;
+        }
+        .btn:active { transform: translateY(4px); box-shadow: 0 0 0 #c0392b; }
+        
+        .hidden { display: none !important; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="score-board">0</div>
+        
+        <div id="start-screen">
+            <h1>Slashy Knight</h1>
+            <p>Tap to Turn. Slash Enemies. Avoid Rocks.</p>
+            <button class="btn" onclick="startGame()">PLAY</button>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1>YOU DIED</h1>
+            <p>Score: <span id="final-score">0</span></p>
+            <button class="btn" onclick="resetGame()">RETRY</button>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+<script>
+    // --- CONFIGURATION ---
+    const TILE_SIZE = 10;
+    const SPEED = 0.8; // Movement speed
+    const VIEW_SIZE = 150; // Orthographic camera view size
+    
+    // --- GLOBALS ---
+    let scene, camera, renderer;
+    let player;
+    let currentDir = { x: 1, z: 0 }; // Start moving +X
+    let isPlaying = false;
+    let isGameOver = false;
+    let score = 0;
+    
+    // World Management
+    let tiles = []; // Array to store active tile meshes
+    let entities = []; // Array to store enemies/obstacles
+    let generatedRow = 0; // Tracking how far we've generated
+    const worldWidth = 9; // Width of the path logic (grid units)
+    
+    // --- INITIALIZATION ---
+    function init() {
+        const container = document.getElementById('canvas-container');
+
+        // Scene
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        
+        // Fog for depth hiding
+        scene.fog = new THREE.Fog(0x87CEEB, 100, 250);
+
+        // Camera (Orthographic for Isometric look)
+        const aspect = container.clientWidth / container.clientHeight;
+        camera = new THREE.OrthographicCamera(
+            VIEW_SIZE * aspect / -2, VIEW_SIZE * aspect / 2,
+            VIEW_SIZE / 2, VIEW_SIZE / -2,
+            1, 1000
+        );
+        
+        // Isometric Angle: Look from corner
+        camera.position.set(200, 200, 200); 
+        camera.lookAt(0, 0, 0);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        dirLight.position.set(100, 200, 50);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.left = -100;
+        dirLight.shadow.camera.right = 100;
+        dirLight.shadow.camera.top = 100;
+        dirLight.shadow.camera.bottom = -100;
+        scene.add(dirLight);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // Resize Handler
+        window.addEventListener('resize', onWindowResize, false);
+        
+        // Input Handler
+        document.addEventListener('mousedown', handleInput);
+        document.addEventListener('touchstart', handleInput, {passive: false});
+
+        // Initial setup (empty until Start is clicked)
+        createPlayer();
+    }
+
+    function createPlayer() {
+        // Player Body
+        const geometry = new THREE.BoxGeometry(6, 6, 6);
+        const material = new THREE.MeshStandardMaterial({ color: 0x3498db }); // Blue Knight
+        player = new THREE.Mesh(geometry, material);
+        player.castShadow = true;
+        player.receiveShadow = true;
+        
+        // Helmet Detail (Visor)
+        const visorGeo = new THREE.BoxGeometry(6.2, 1.5, 4);
+        const visorMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const visor = new THREE.Mesh(visorGeo, visorMat);
+        visor.position.y = 1;
+        player.add(visor);
+
+        // Sword
+        const bladeGeo = new THREE.BoxGeometry(1, 12, 1);
+        const bladeMat = new THREE.MeshStandardMaterial({ color: 0xecf0f1, metalness: 0.8, roughness: 0.2 });
+        const blade = new THREE.Mesh(bladeGeo, bladeMat);
+        blade.position.set(4, 2, 4);
+        blade.rotation.x = Math.PI / 2;
+        player.add(blade);
+
+        scene.add(player);
+        resetPlayer();
+    }
+
+    function resetPlayer() {
+        player.position.set(0, 3, 0); // Y=3 because height is 6
+        player.rotation.y = 0;
+        currentDir = { x: 1, z: 0 };
+    }
+
+    // --- GAME LOGIC ---
+
+    function startGame() {
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-over-screen').classList.add('hidden');
+        
+        // Clear old world
+        tiles.forEach(t => scene.remove(t));
+        entities.forEach(e => scene.remove(e.mesh));
+        tiles = [];
+        entities = [];
+        generatedRow = -5; // Start generation behind player
+        score = 0;
+        updateScore();
+
+        resetPlayer();
+        
+        // Generate initial path
+        for(let i=0; i<30; i++) {
+            generateNextRow();
+        }
+
+        isPlaying = true;
+        isGameOver = false;
+        animate();
+    }
+
+    function resetGame() {
+        startGame();
+    }
+
+    function handleInput(e) {
+        if (!isPlaying || isGameOver) return;
+        if (e.target.closest('button')) return; // Ignore button clicks
+
+        // Prevent default touch behavior (scrolling)
+        if(e.type === 'touchstart') e.preventDefault();
+
+        // Toggle Direction: If X, go Z. If Z, go X.
+        if (currentDir.x !== 0) {
+            currentDir = { x: 0, z: 1 };
+            player.rotation.y = -Math.PI / 2; // Face Z (Right)
+        } else {
+            currentDir = { x: 1, z: 0 };
+            player.rotation.y = 0; // Face X (Left/Forward)
+        }
+    }
+
+    // --- PROCEDURAL GENERATION ---
+    
+    // We generate "rows" of tiles. Each row shifts randomly left or right to create a path.
+    let pathCenter = 0; // The z-index (or x-index relative) of the path center
+    
+    function generateNextRow() {
+        // Shift path randomly
+        if (Math.random() > 0.5) pathCenter += 1;
+        else if (Math.random() > 0.5) pathCenter -= 1;
+        
+        // Clamp path width so it doesn't drift too far
+        if(pathCenter > 5) pathCenter = 5;
+        if(pathCenter < -5) pathCenter = -5;
+
+        // Create Grid Row at X = generatedRow * TILE_SIZE
+        const xPos = generatedRow * TILE_SIZE;
+        
+        // We fill a width of, say, 7 tiles around the pathCenter
+        const width = 3; 
+        
+        for (let z = pathCenter - width; z <= pathCenter + width; z++) {
+            const zPos = z * TILE_SIZE;
+            
+            // Create Ground Tile
+            const geometry = new THREE.BoxGeometry(TILE_SIZE, 2, TILE_SIZE);
+            const isPath = Math.abs(z - pathCenter) <= 1;
+            
+            // Checkerboard pattern
+            const isDark = (generatedRow + z) % 2 === 0;
+            const color = isDark ? 0x76d7c4 : 0x48c9b0; // Greenish tiles
+            
+            const material = new THREE.LambertMaterial({ color: color });
+            const tile = new THREE.Mesh(geometry, material);
+            tile.position.set(xPos, -1, zPos);
+            tile.receiveShadow = true;
+            scene.add(tile);
+            tiles.push(tile);
+
+            // Spawning Logic (only ahead of start area)
+            if (generatedRow > 5) {
+                // Spawn Obstacles (Tree/Rock)
+                if (Math.random() < 0.1 && Math.abs(z - pathCenter) > 0) {
+                    createObstacle(xPos, zPos);
+                } 
+                // Spawn Enemy (Red Box) - Only on path
+                else if (Math.random() < 0.05 && Math.abs(z - pathCenter) <= 1) {
+                    createEnemy(xPos, zPos);
+                }
+            }
+        }
+        
+        generatedRow++;
+    }
+
+    function createObstacle(x, z) {
+        const h = Math.random() * 5 + 5;
+        const geo = new THREE.BoxGeometry(8, h, 8);
+        const mat = new THREE.LambertMaterial({ color: 0x7f8c8d }); // Grey Rock
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, h/2, z);
+        mesh.castShadow = true;
+        scene.add(mesh);
+        entities.push({ mesh: mesh, type: 'obstacle', active: true });
+    }
+
+    function createEnemy(x, z) {
+        const geo = new THREE.BoxGeometry(6, 6, 6);
+        const mat = new THREE.MeshStandardMaterial({ color: 0xe74c3c }); // Red Enemy
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, 3, z);
+        mesh.castShadow = true;
+        
+        // Enemy "Eyes"
+        const eyeGeo = new THREE.BoxGeometry(1, 1, 1);
+        const eyeMat = new THREE.MeshBasicMaterial({color:0xffffff});
+        const lEye = new THREE.Mesh(eyeGeo, eyeMat);
+        const rEye = new THREE.Mesh(eyeGeo, eyeMat);
+        lEye.position.set(2, 1, 3.1);
+        rEye.position.set(-2, 1, 3.1); // Actually face depends on rot, let's just put eyes on all sides? No, simple box.
+        
+        scene.add(mesh);
+        entities.push({ mesh: mesh, type: 'enemy', active: true });
+    }
+
+    // --- MAIN LOOP ---
+
+    function animate() {
+        if (!isPlaying) return;
+        requestAnimationFrame(animate);
+
+        // 1. Move Player
+        player.position.x += currentDir.x * SPEED;
+        player.position.z += currentDir.z * SPEED;
+
+        // 2. Camera Follow
+        // Smoothly interpolate camera position to follow player
+        const targetX = player.position.x + 100;
+        const targetZ = player.position.z + 100;
+        camera.position.x += (targetX - camera.position.x) * 0.1;
+        camera.position.z += (targetZ - camera.position.z) * 0.1;
+        camera.lookAt(player.position.x, 0, player.position.z);
+
+        // 3. Collision Detection
+        checkCollisions();
+
+        // 4. World Cleanup & Generation
+        // Generate new tiles ahead
+        if (player.position.x > (generatedRow - 20) * TILE_SIZE) {
+            generateNextRow();
+        }
+        
+        // Remove old tiles/entities for performance
+        // (Simplified cleanup: just checking distance logic is better, but here we let ThreeJS handle a few hundred objs)
+        if (tiles.length > 500) {
+            const oldTile = tiles.shift();
+            scene.remove(oldTile);
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    function checkCollisions() {
+        // Bounding Box Logic
+        const pBox = new THREE.Box3().setFromObject(player);
+        // Shrink player box slightly to be forgiving
+        pBox.expandByScalar(-1); 
+
+        // Check Entity Collisions
+        for (let i = 0; i < entities.length; i++) {
+            const e = entities[i];
+            if (!e.active) continue;
+
+            const eBox = new THREE.Box3().setFromObject(e.mesh);
+            
+            if (pBox.intersectsBox(eBox)) {
+                if (e.type === 'enemy') {
+                    // KILL ENEMY
+                    scene.remove(e.mesh);
+                    e.active = false;
+                    score += 10;
+                    updateScore();
+                    // Slight visuals
+                    player.scale.set(1.2, 0.8, 1.2); // Squish effect
+                    setTimeout(() => player.scale.set(1,1,1), 100);
+                } else if (e.type === 'obstacle') {
+                    // HIT WALL -> DIE
+                    gameOver();
+                }
+            }
+        }
+
+        // Check if Fallen off world
+        // We cast a ray down from player. If no hit, we fall.
+        const raycaster = new THREE.Raycaster();
+        raycaster.set(player.position, new THREE.Vector3(0, -1, 0));
+        const intersects = raycaster.intersectObjects(tiles);
+        
+        if (intersects.length === 0 && player.position.y > -5) {
+            // No ground below
+            player.position.y -= 2; // Fall animation
+            if (player.position.y < -10) gameOver();
+        }
+    }
+
+    function updateScore() {
+        document.getElementById('score-board').innerText = score;
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        isGameOver = true;
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('game-over-screen').classList.remove('hidden');
+    }
+
+    function onWindowResize() {
+        const aspect = window.innerWidth / window.innerHeight;
+        camera.left = VIEW_SIZE * aspect / -2;
+        camera.right = VIEW_SIZE * aspect / 2;
+        camera.top = VIEW_SIZE / 2;
+        camera.bottom = VIEW_SIZE / -2;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>
