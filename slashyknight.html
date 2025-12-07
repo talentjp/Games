@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Voxel Quest: Sticky Move</title>
+    <title>Voxel Quest: Speed Run</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
     <style>
@@ -35,7 +35,6 @@
             width: 50%;
             z-index: 10;
             display: none; 
-            /* background: rgba(0,0,0,0.1); /* debug tint */
         }
         #left-zone { left: 0; }
         #right-zone { right: 0; }
@@ -148,11 +147,9 @@
 
     <div id="game-container"></div>
     
-    <!-- Gameplay Inputs -->
     <div id="left-zone" class="tap-zone"></div>
     <div id="right-zone" class="tap-zone"></div>
 
-    <!-- HUD -->
     <div id="ui-layer">
         <div class="top-bar">
             <div class="hud-panel">
@@ -168,10 +165,9 @@
         </div>
     </div>
 
-    <!-- Menu Overlay -->
     <div id="overlay">
         <h1 id="title-text">VOXEL QUEST</h1>
-        <p id="desc-text">Tap Left/Right to change direction.<br>Avoid Trees. Slash Enemies.</p>
+        <p id="desc-text">Tap Left/Right to change direction.<br>Speed increases over time!</p>
         <button id="start-btn" onclick="window.startGame()">PLAY</button>
     </div>
 
@@ -181,7 +177,11 @@
             tileSize: 10,
             camZoom: 45,
             renderDist: 18,
-            moveSpeed: 180, // slightly faster for flow
+            // Speed Settings (Duration in ms, lower is faster)
+            startSpeed: 500, 
+            minSpeed: 200,    
+            acceleration: 0.5, // ms reduced per step
+            
             colors: {
                 sky: 0x4fc3f7,
                 water: 0x29b6f6,
@@ -203,7 +203,8 @@
         
         // MOVEMENT STATE
         let isMoving = false;
-        let currentDirection = null; // 'LEFT' or 'RIGHT' or null (idle)
+        let currentDirection = null;
+        let currentMoveDuration = CONFIG.startSpeed;
 
         // Data Storage
         const map = new Map();
@@ -281,7 +282,8 @@
                 score = 0;
                 playerPos = { x: 0, z: 0 };
                 isMoving = false;
-                currentDirection = null; // Wait for first tap
+                currentDirection = null; 
+                currentMoveDuration = CONFIG.startSpeed; // Reset speed
 
                 document.getElementById('score').innerText = '0';
                 document.getElementById('overlay').classList.add('hidden');
@@ -314,12 +316,9 @@
         };
 
         function setInput(dir) {
-            // Set the sticky direction
             currentDirection = dir;
-            
-            // If we are currently idle (start of game), kick off the loop
             if (!isMoving && gameState === 'PLAYING') {
-                document.getElementById('controls-hint').innerText = ""; // clear hint
+                document.getElementById('controls-hint').innerText = ""; 
                 nextTurn();
             }
         }
@@ -327,7 +326,6 @@
         function nextTurn() {
             if (gameState !== 'PLAYING') return;
             
-            // If no direction set yet, wait.
             if (!currentDirection) {
                 isMoving = false;
                 return;
@@ -335,7 +333,11 @@
 
             isMoving = true;
 
-            // Calculate Target based on Sticky Direction
+            // Increase Speed logic
+            if (currentMoveDuration > CONFIG.minSpeed) {
+                currentMoveDuration -= CONFIG.acceleration;
+            }
+
             let tx = playerPos.x;
             let tz = playerPos.z;
             let angle = 0;
@@ -348,36 +350,29 @@
                 angle = 0;
             }
 
-            // Inspect Target
             const key = `${tx},${tz}`;
             const tile = map.get(key);
 
-            // 1. Hole / Water
             if (!tile || tile.type === 'water') {
-                animateMove(tx, tz, angle, 'fall'); // Will trigger GameOver
+                animateMove(tx, tz, angle, 'fall'); 
                 return;
             }
 
-            // 2. Obstacle (Tree) -> INSTANT DEATH
             if (tile.content === 'obstacle') {
-                // Visual crash
                 knight.lookAt(tx * CONFIG.tileSize, 0, tz * CONFIG.tileSize);
                 crashAndBurn(); 
                 return;
             }
 
-            // 3. Enemy -> Attack then Continue
             if (tile.content === 'enemy') {
                 animateAttack(tile, tx, tz, angle);
                 return;
             }
 
-            // 4. Empty -> Hop then Continue
             animateMove(tx, tz, angle, 'hop');
         }
 
         function crashAndBurn() {
-            // Little shake/recoil
             const start = knight.position.clone();
             addTween(100, (p) => {
                 knight.position.x = start.x + (Math.random()-0.5)*2;
@@ -400,7 +395,7 @@
             const btn = document.getElementById('start-btn');
             
             title.innerText = "GAME OVER";
-            desc.innerHTML = `Final Score: ${score}`;
+            desc.innerHTML = `Final Score: ${score}<br>Max Speed Reached: ${Math.round(CONFIG.startSpeed - currentMoveDuration)}%`;
             btn.innerText = "RETRY";
             
             document.getElementById('overlay').classList.remove('hidden');
@@ -416,36 +411,27 @@
             const endX = tx * CONFIG.tileSize;
             const endZ = tz * CONFIG.tileSize;
             
-            // Snap rotation or smooth it? Snap feels snappier for voxel.
             knight.rotation.y = angle;
 
-            addTween(CONFIG.moveSpeed, (p) => {
+            addTween(currentMoveDuration, (p) => {
                 knight.position.x = startX + (endX - startX) * p;
                 knight.position.z = startZ + (endZ - startZ) * p;
 
                 if(type === 'hop') {
-                    // Parabolic arc
                     knight.position.y = Math.sin(p * Math.PI) * 4;
                 } else if (type === 'fall') {
-                    // Fall into void
                     knight.position.y = Math.sin(p * Math.PI) * 2 - (p * p * 25);
                 }
             }, () => {
-                // Animation Complete
                 if(type === 'fall') {
                     gameOver();
                 } else {
-                    // Landed successfully
                     playerPos.x = tx;
                     playerPos.z = tz;
                     knight.position.y = 0;
-                    
                     score++;
                     document.getElementById('score').innerText = score;
-                    
                     generateWorld();
-                    
-                    // RECURSION: Trigger next move immediately
                     nextTurn(); 
                 }
             });
@@ -454,25 +440,21 @@
         function animateAttack(tile, tx, tz, angle) {
             knight.rotation.y = angle;
             
-            // Fast slash while moving slightly? 
-            // For smooth flow, we stop momentarily to slash, then move.
-            // Or we can slash *during* the hop.
-            // Let's do a quick slash in place, then hop, to make it impactful.
-            
-            addTween(100, (p) => {
+            // Attack duration scales with move speed so it doesn't desync
+            const attackDur = currentMoveDuration * 0.6;
+
+            addTween(attackDur, (p) => {
                 swordGroup.rotation.z = -Math.PI/4 - Math.sin(p * Math.PI) * 2;
             }, () => {
-                // Enemy Die
                 swordGroup.rotation.z = -Math.PI/4;
                 spawnParticles(tile.mesh.position, CONFIG.colors.enemy);
                 scene.remove(tile.prop);
                 tile.content = 'none';
                 tile.prop = null;
                 
-                score += 5; // Bonus
+                score += 5; 
                 document.getElementById('score').innerText = score;
 
-                // Move into the tile now that it's empty
                 animateMove(tx, tz, angle, 'hop');
             });
         }
@@ -480,7 +462,6 @@
         // --- World Gen ---
 
         function generateWorld() {
-            // Remove old
             const cullDist = 2;
             for(const [k, t] of map) {
                 const [tx, tz] = k.split(',').map(Number);
@@ -488,8 +469,6 @@
                     dropTile(t, k);
                 }
             }
-
-            // Generate new
             for(let i=1; i<=CONFIG.renderDist; i++) {
                 const w = Math.floor(i/1.5) + 1;
                 for(let offset = -w; offset <= w; offset++) {
@@ -515,8 +494,15 @@
             const boxGeo = new THREE.BoxGeometry(CONFIG.tileSize, CONFIG.tileSize, CONFIG.tileSize);
 
             if(type === 'ground') {
+                // Generate a hash-based color tint for uniqueness
+                const tint = (Math.abs(Math.sin(x * 1.3 + z * 2.1)) * 0.2) + 0.8; 
+                
                 const matTop = new THREE.MeshToonMaterial({ color: CONFIG.colors.grass });
+                matTop.color.multiplyScalar(tint);
+                
                 const matSide = new THREE.MeshToonMaterial({ color: CONFIG.colors.dirt });
+                matSide.color.multiplyScalar(tint * 0.9); // Slightly darker sides
+
                 const mesh = new THREE.Mesh(boxGeo, [matSide, matSide, matTop, matSide, matSide, matSide]);
                 mesh.position.y = -CONFIG.tileSize/2;
                 mesh.receiveShadow = true;
@@ -544,7 +530,6 @@
             scene.add(group);
             map.set(key, { mesh: group, type, content, prop });
 
-            // Pop In
             group.scale.set(0,0,0);
             addTween(300, (p) => {
                 const s = p >= 1 ? 1 : Math.pow(2, -10*p) * Math.sin((p*10-0.75)*(2*Math.PI)/3) + 1;
