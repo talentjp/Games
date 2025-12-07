@@ -2,356 +2,379 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2048 - HTML5 Version</title>
+    <title>3D 2048 - Three.js</title>
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            background-color: #faf8ef;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            overflow: hidden; /* Prevent scrolling on arrow keys */
-        }
-        h1 { font-size: 60px; color: #776e65; margin: 0; }
-        .score-container {
-            background: #bbada0;
-            padding: 10px 20px;
-            border-radius: 6px;
-            color: white;
-            font-size: 20px;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-        .game-container {
-            background-color: #bbada0;
-            width: 400px;
-            height: 400px;
-            border-radius: 10px;
-            padding: 10px;
-            position: relative;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            grid-template-rows: repeat(4, 1fr);
-            gap: 10px;
-        }
-        .cell {
-            background-color: #cdc1b4;
-            border-radius: 5px;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 40px;
-            font-weight: bold;
-            color: #776e65;
-            transition: all 0.1s ease-in-out;
-        }
-        /* Tile Colors */
-        .tile-2 { background: #eee4da; }
-        .tile-4 { background: #ede0c8; }
-        .tile-8 { background: #f2b179; color: #f9f6f2; }
-        .tile-16 { background: #f59563; color: #f9f6f2; }
-        .tile-32 { background: #f67c5f; color: #f9f6f2; }
-        .tile-64 { background: #f65e3b; color: #f9f6f2; }
-        .tile-128 { background: #edcf72; color: #f9f6f2; font-size: 30px; }
-        .tile-256 { background: #edcc61; color: #f9f6f2; font-size: 30px; }
-        .tile-512 { background: #edc850; color: #f9f6f2; font-size: 30px; }
-        .tile-1024 { background: #edc53f; color: #f9f6f2; font-size: 25px; }
-        .tile-2048 { background: #edc22e; color: #f9f6f2; font-size: 25px; }
-
-        .game-over {
+        body { margin: 0; overflow: hidden; background-color: #222; font-family: sans-serif; }
+        #score-container {
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(238, 228, 218, 0.73);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            border-radius: 10px;
-            display: none; /* Hidden by default */
-        }
-        .game-over button {
-            padding: 10px 20px;
-            background: #8f7a66;
+            top: 20px;
+            left: 20px;
             color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 18px;
-            margin-top: 10px;
+            z-index: 10;
+            pointer-events: none;
         }
+        h1 { margin: 0; font-size: 40px; }
+        p { margin: 5px 0; font-size: 20px; color: #aaa; }
     </style>
 </head>
 <body>
 
-    <h1>2048</h1>
-    <div class="score-container">Score: <span id="score">0</span></div>
+<div id="score-container">
+    <h1>2048 3D</h1>
+    <p>Score: <span id="score">0</span></p>
+    <p style="font-size: 14px">Use Arrow Keys to move</p>
+</div>
 
-    <div class="game-container" id="grid">
-        </div>
-    
-    <div class="game-over" id="gameOverMsg">
-        <h2>Game Over!</h2>
-        <button onclick="resetGame()">Try Again</button>
-    </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <script>
-    const gridDisplay = document.getElementById('grid');
-    const scoreDisplay = document.getElementById('score');
-    const gameOverDisplay = document.getElementById('gameOverMsg');
-    const width = 4;
-    let squares = [];
+    // --- CONFIGURATION ---
+    const TILE_SIZE = 2;
+    const TILE_GAP = 0.2;
+    const BOARD_SIZE = 4;
+    const ANIMATION_SPEED = 0.2; // Lerp factor (0 to 1)
+
+    // Colors for different values
+    const COLORS = {
+        0: 0xcdc1b4, // Empty slot color
+        2: 0xeee4da,
+        4: 0xede0c8,
+        8: 0xf2b179,
+        16: 0xf59563,
+        32: 0xf67c5f,
+        64: 0xf65e3b,
+        128: 0xedcf72,
+        256: 0xedcc61,
+        512: 0xedc850,
+        1024: 0xedc53f,
+        2048: 0xedc22e
+    };
+
+    // --- GLOBAL VARIABLES ---
+    let scene, camera, renderer;
+    let grid = []; // Logical grid (stores values and mesh references)
     let score = 0;
+    let scoreElement = document.getElementById('score');
+    
+    // Groups
+    let boardGroup = new THREE.Group();
+    let tilesGroup = new THREE.Group();
 
-    // Create the Playing Board
-    function createBoard() {
-        gridDisplay.innerHTML = '';
-        squares = [];
-        for (let i = 0; i < width * width; i++) {
-            let square = document.createElement('div');
-            square.innerHTML = 0;
-            square.className = 'cell';
-            gridDisplay.appendChild(square);
-            squares.push(square);
-        }
-        generate();
-        generate();
-        updateView();
+    // --- INITIALIZATION ---
+    function init() {
+        // Scene Setup
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x333333);
+
+        // Camera
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 15, 12);
+        camera.lookAt(0, 0, 0);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 5);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Build Board Base
+        createBoardBase();
+        
+        // Initialize Logic
+        initGrid();
+        addRandomTile();
+        addRandomTile();
+
+        scene.add(boardGroup);
+        scene.add(tilesGroup);
+
+        // Event Listeners
+        window.addEventListener('resize', onWindowResize, false);
+        window.addEventListener('keydown', handleInput);
+
+        // Start Loop
+        animate();
     }
 
-    // Generate a number (2 or 4) in a random empty spot
-    function generate() {
-        let random = Math.floor(Math.random() * squares.length);
-        if (parseInt(squares[random].innerHTML) === 0) {
-            squares[random].innerHTML = Math.random() > 0.1 ? 2 : 4;
-        } else {
-            // If slot is full, try again (simple recursion)
-            let zeros = squares.filter(sq => parseInt(sq.innerHTML) === 0);
-            if(zeros.length > 0) generate();
-        }
-    }
+    // --- LOGIC & HELPERS ---
 
-    // Swipe Right
-    function moveRight() {
-        let moved = false;
-        for (let i = 0; i < 16; i++) {
-            if (i % 4 === 0) {
-                let row = [
-                    parseInt(squares[i].innerHTML),
-                    parseInt(squares[i+1].innerHTML),
-                    parseInt(squares[i+2].innerHTML),
-                    parseInt(squares[i+3].innerHTML)
-                ];
-                let filteredRow = row.filter(num => num);
-                let missing = 4 - filteredRow.length;
-                let zeros = Array(missing).fill(0);
-                let newRow = zeros.concat(filteredRow);
+    function createBoardBase() {
+        // Calculate total width
+        const totalWidth = (BOARD_SIZE * TILE_SIZE) + ((BOARD_SIZE + 1) * TILE_GAP);
+        const offset = totalWidth / 2;
 
-                if (newRow.join(',') !== row.join(',')) moved = true;
+        // Base Plane
+        const geometry = new THREE.BoxGeometry(totalWidth, 0.5, totalWidth);
+        const material = new THREE.MeshLambertMaterial({ color: 0xbbada0 });
+        const base = new THREE.Mesh(geometry, material);
+        base.position.y = -0.5;
+        boardGroup.add(base);
 
-                squares[i].innerHTML = newRow[0];
-                squares[i+1].innerHTML = newRow[1];
-                squares[i+2].innerHTML = newRow[2];
-                squares[i+3].innerHTML = newRow[3];
+        // Create empty slots (visual markers)
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            for (let z = 0; z < BOARD_SIZE; z++) {
+                const slotGeom = new THREE.BoxGeometry(TILE_SIZE, 0.1, TILE_SIZE);
+                const slotMat = new THREE.MeshLambertMaterial({ color: 0xcdc1b4 });
+                const slot = new THREE.Mesh(slotGeom, slotMat);
+                
+                const pos = getPosition(x, z);
+                slot.position.set(pos.x, -0.2, pos.z);
+                boardGroup.add(slot);
             }
         }
-        return moved;
     }
 
-    // Swipe Left
-    function moveLeft() {
-        let moved = false;
-        for (let i = 0; i < 16; i++) {
-            if (i % 4 === 0) {
-                let row = [
-                    parseInt(squares[i].innerHTML),
-                    parseInt(squares[i+1].innerHTML),
-                    parseInt(squares[i+2].innerHTML),
-                    parseInt(squares[i+3].innerHTML)
-                ];
-                let filteredRow = row.filter(num => num);
-                let missing = 4 - filteredRow.length;
-                let zeros = Array(missing).fill(0);
-                let newRow = filteredRow.concat(zeros);
-
-                if (newRow.join(',') !== row.join(',')) moved = true;
-
-                squares[i].innerHTML = newRow[0];
-                squares[i+1].innerHTML = newRow[1];
-                squares[i+2].innerHTML = newRow[2];
-                squares[i+3].innerHTML = newRow[3];
+    function initGrid() {
+        grid = [];
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            grid[x] = [];
+            for (let z = 0; z < BOARD_SIZE; z++) {
+                grid[x][z] = null; // Stores { value: int, mesh: THREE.Mesh, markForDelete: bool }
             }
         }
-        return moved;
     }
 
-    // Swipe Down
-    function moveDown() {
-        let moved = false;
-        for (let i = 0; i < 4; i++) {
-            let column = [
-                parseInt(squares[i].innerHTML),
-                parseInt(squares[i + width].innerHTML),
-                parseInt(squares[i + (width*2)].innerHTML),
-                parseInt(squares[i + (width*3)].innerHTML)
-            ];
-            let filteredColumn = column.filter(num => num);
-            let missing = 4 - filteredColumn.length;
-            let zeros = Array(missing).fill(0);
-            let newColumn = zeros.concat(filteredColumn);
-
-            if (newColumn.join(',') !== column.join(',')) moved = true;
-
-            squares[i].innerHTML = newColumn[0];
-            squares[i + width].innerHTML = newColumn[1];
-            squares[i + (width*2)].innerHTML = newColumn[2];
-            squares[i + (width*3)].innerHTML = newColumn[3];
-        }
-        return moved;
+    // Helper to map grid coordinates (0-3) to World Coordinates
+    function getPosition(gx, gz) {
+        const totalWidth = (BOARD_SIZE * TILE_SIZE) + ((BOARD_SIZE - 1) * TILE_GAP);
+        const start = -totalWidth / 2 + TILE_SIZE / 2;
+        return {
+            x: start + gx * (TILE_SIZE + TILE_GAP),
+            z: start + gz * (TILE_SIZE + TILE_GAP)
+        };
     }
 
-    // Swipe Up
-    function moveUp() {
-        let moved = false;
-        for (let i = 0; i < 4; i++) {
-            let column = [
-                parseInt(squares[i].innerHTML),
-                parseInt(squares[i + width].innerHTML),
-                parseInt(squares[i + (width*2)].innerHTML),
-                parseInt(squares[i + (width*3)].innerHTML)
-            ];
-            let filteredColumn = column.filter(num => num);
-            let missing = 4 - filteredColumn.length;
-            let zeros = Array(missing).fill(0);
-            let newColumn = filteredColumn.concat(zeros);
+    // Dynamic Texture Generator (Canvas)
+    function createTileTexture(value) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
 
-            if (newColumn.join(',') !== column.join(',')) moved = true;
+        // Background color
+        const hexColor = COLORS[value] || 0x3c3a32;
+        const colorString = '#' + new THREE.Color(hexColor).getHexString();
+        
+        ctx.fillStyle = colorString;
+        ctx.fillRect(0, 0, 256, 256);
 
-            squares[i].innerHTML = newColumn[0];
-            squares[i + width].innerHTML = newColumn[1];
-            squares[i + (width*2)].innerHTML = newColumn[2];
-            squares[i + (width*3)].innerHTML = newColumn[3];
-        }
-        return moved;
+        // Text
+        ctx.fillStyle = (value > 4) ? '#f9f6f2' : '#776e65';
+        ctx.font = 'bold 120px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(value, 128, 128);
+
+        // Border for definition
+        ctx.strokeStyle = '#bbada0';
+        ctx.lineWidth = 10;
+        ctx.strokeRect(0,0,256,256);
+
+        return new THREE.CanvasTexture(canvas);
     }
 
-    function combineRow() {
-        let combined = false;
-        for (let i = 0; i < 15; i++) {
-            // Prevent wrapping combinations (e.g. index 3 and 4)
-            if ((i + 1) % 4 === 0) continue; 
-            
-            if (squares[i].innerHTML === squares[i+1].innerHTML && squares[i].innerHTML !== '0') {
-                let combinedTotal = parseInt(squares[i].innerHTML) + parseInt(squares[i+1].innerHTML);
-                squares[i].innerHTML = combinedTotal;
-                squares[i+1].innerHTML = 0;
-                score += combinedTotal;
-                scoreDisplay.innerHTML = score;
-                combined = true;
+    function createTileMesh(value, gx, gz) {
+        const geometry = new THREE.BoxGeometry(TILE_SIZE, 0.5, TILE_SIZE); // Thinner tiles
+        const texture = createTileTexture(value);
+        const material = new THREE.MeshLambertMaterial({ map: texture });
+        const mesh = new THREE.Mesh(geometry, material);
+        
+        const worldPos = getPosition(gx, gz);
+        mesh.position.set(worldPos.x, 0, worldPos.z);
+        
+        // Add a target property for animation
+        mesh.userData = { 
+            targetX: worldPos.x, 
+            targetZ: worldPos.z,
+            scale: 0
+        };
+
+        // Start small for pop-in effect
+        mesh.scale.set(0, 0, 0);
+
+        tilesGroup.add(mesh);
+        return mesh;
+    }
+
+    function addRandomTile() {
+        let emptyCells = [];
+        for(let x=0; x<BOARD_SIZE; x++){
+            for(let z=0; z<BOARD_SIZE; z++){
+                if(!grid[x][z]) emptyCells.push({x, z});
             }
-        }
-        return combined;
-    }
-
-    function combineColumn() {
-        let combined = false;
-        for (let i = 0; i < 12; i++) {
-            if (squares[i].innerHTML === squares[i + width].innerHTML && squares[i].innerHTML !== '0') {
-                let combinedTotal = parseInt(squares[i].innerHTML) + parseInt(squares[i + width].innerHTML);
-                squares[i].innerHTML = combinedTotal;
-                squares[i + width].innerHTML = 0;
-                score += combinedTotal;
-                scoreDisplay.innerHTML = score;
-                combined = true;
-            }
-        }
-        return combined;
-    }
-
-    // Assign keys
-    function control(e) {
-        if(gameOverDisplay.style.display === 'flex') return;
-
-        let moved = false;
-        let combined = false;
-
-        if (e.key === 'ArrowRight') {
-            let m1 = moveRight();
-            let c = combineRow();
-            let m2 = moveRight();
-            if (m1 || c || m2) generate();
-        } else if (e.key === 'ArrowLeft') {
-            let m1 = moveLeft();
-            let c = combineRow();
-            let m2 = moveLeft();
-            if (m1 || c || m2) generate();
-        } else if (e.key === 'ArrowUp') {
-            let m1 = moveUp();
-            let c = combineColumn();
-            let m2 = moveUp();
-            if (m1 || c || m2) generate();
-        } else if (e.key === 'ArrowDown') {
-            let m1 = moveDown();
-            let c = combineColumn();
-            let m2 = moveDown();
-            if (m1 || c || m2) generate();
         }
         
-        updateView();
-        checkForGameOver();
+        if (emptyCells.length === 0) return;
+
+        const r = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+        const value = Math.random() < 0.9 ? 2 : 4;
+
+        const mesh = createTileMesh(value, r.x, r.z);
+        grid[r.x][r.z] = { value: value, mesh: mesh, mergedFrom: null };
     }
 
-    function updateView() {
-        for (let i = 0; i < squares.length; i++) {
-            squares[i].innerHTML = parseInt(squares[i].innerHTML) === 0 ? '' : squares[i].innerHTML;
-            squares[i].className = 'cell'; // reset
-            let num = parseInt(squares[i].innerHTML);
-            if (num > 0) {
-                squares[i].classList.add(`tile-${num}`);
-            }
-            // Restore 0 for logic purposes
-            if (squares[i].innerHTML === '') squares[i].innerHTML = 0; 
+    // --- GAMEPLAY LOGIC ---
+
+    function handleInput(event) {
+        let moved = false;
+        switch(event.key) {
+            case "ArrowUp": moved = moveTiles(0, -1); break;
+            case "ArrowDown": moved = moveTiles(0, 1); break;
+            case "ArrowLeft": moved = moveTiles(-1, 0); break;
+            case "ArrowRight": moved = moveTiles(1, 0); break;
+        }
+
+        if (moved) {
+            setTimeout(() => addRandomTile(), 150);
+            scoreElement.innerText = score;
         }
     }
 
-    function checkForGameOver() {
-        let zeros = 0;
-        for (let i=0; i<squares.length; i++) {
-            if (parseInt(squares[i].innerHTML) === 0) zeros++;
-        }
+    function moveTiles(dx, dz) {
+        let moved = false;
+
+        // We need to traverse in the correct direction to avoid overwriting moves
+        // If moving Right (dx=1), process rightmost columns first.
+        // If moving Down (dz=1), process bottom rows first.
         
-        // If board is full, check if any moves are possible
-        if (zeros === 0) {
-            let possibleMove = false;
-            // check rows
-            for(let i=0; i<15; i++) {
-                if((i+1)%4 !== 0 && squares[i].innerHTML === squares[i+1].innerHTML) possibleMove = true;
-            }
-            // check cols
-            for(let i=0; i<12; i++) {
-                if(squares[i].innerHTML === squares[i+width].innerHTML) possibleMove = true;
-            }
+        const xStart = dx === 1 ? BOARD_SIZE - 1 : 0;
+        const xEnd = dx === 1 ? -1 : BOARD_SIZE;
+        const xStep = dx === 1 ? -1 : 1;
 
-            if (!possibleMove) {
-                gameOverDisplay.style.display = 'flex';
+        const zStart = dz === 1 ? BOARD_SIZE - 1 : 0;
+        const zEnd = dz === 1 ? -1 : BOARD_SIZE;
+        const zStep = dz === 1 ? -1 : 1;
+
+        // Reset merge flags
+        for(let x=0; x<BOARD_SIZE; x++){
+            for(let z=0; z<BOARD_SIZE; z++){
+                if(grid[x][z]) grid[x][z].merged = false;
             }
         }
+
+        for (let x = xStart; x !== xEnd; x += xStep) {
+            for (let z = zStart; z !== zEnd; z += zStep) {
+                
+                let cell = grid[x][z];
+                if (!cell) continue;
+
+                let nextX = x + dx;
+                let nextZ = z + dz;
+                let destX = x;
+                let destZ = z;
+
+                // Find farthest valid position
+                while (
+                    nextX >= 0 && nextX < BOARD_SIZE &&
+                    nextZ >= 0 && nextZ < BOARD_SIZE
+                ) {
+                    let nextCell = grid[nextX][nextZ];
+                    
+                    if (!nextCell) {
+                        // Empty spot, we can move here
+                        destX = nextX;
+                        destZ = nextZ;
+                    } else if (nextCell.value === cell.value && !nextCell.merged) {
+                        // Merge spot!
+                        destX = nextX;
+                        destZ = nextZ;
+                        break; // Stop checking further
+                    } else {
+                        // Blocked by different number or already merged
+                        break;
+                    }
+                    
+                    nextX += dx;
+                    nextZ += dz;
+                }
+
+                if (destX !== x || destZ !== z) {
+                    // Logic Update
+                    let targetCell = grid[destX][destZ];
+                    
+                    if (targetCell && targetCell.value === cell.value) {
+                        // MERGE
+                        const newValue = cell.value * 2;
+                        score += newValue;
+                        
+                        // Remove the old mesh of the tile we are moving INTO
+                        // But actually, we want to animate the moving tile INTO the target, then swap.
+                        // For simplicity: Remove target mesh immediately (or create a new combined one)
+                        tilesGroup.remove(targetCell.mesh);
+                        
+                        // Update current cell to new value
+                        cell.value = newValue;
+                        cell.merged = true;
+                        
+                        // Update Mesh Texture
+                        cell.mesh.material.map = createTileTexture(newValue);
+                        
+                        // Move logic reference
+                        grid[destX][destZ] = cell;
+                        grid[x][z] = null;
+                        
+                        moved = true;
+                    } else {
+                        // SIMPLE MOVE
+                        grid[destX][destZ] = cell;
+                        grid[x][z] = null;
+                        moved = true;
+                    }
+
+                    // Visual Update Set Target
+                    const worldPos = getPosition(destX, destZ);
+                    cell.mesh.userData.targetX = worldPos.x;
+                    cell.mesh.userData.targetZ = worldPos.z;
+                }
+            }
+        }
+        return moved;
     }
 
-    function resetGame() {
-        score = 0;
-        scoreDisplay.innerHTML = 0;
-        gameOverDisplay.style.display = 'none';
-        createBoard();
+    // --- RENDER LOOP ---
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // Animate Tiles
+        grid.forEach(row => {
+            row.forEach(tile => {
+                if (tile && tile.mesh) {
+                    // Position Lerp (Slide)
+                    tile.mesh.position.x += (tile.mesh.userData.targetX - tile.mesh.position.x) * ANIMATION_SPEED;
+                    tile.mesh.position.z += (tile.mesh.userData.targetZ - tile.mesh.position.z) * ANIMATION_SPEED;
+
+                    // Scale Lerp (Pop in effect)
+                    if (tile.mesh.userData.scale < 1) {
+                        tile.mesh.userData.scale += 0.1;
+                        if(tile.mesh.userData.scale > 1) tile.mesh.userData.scale = 1;
+                        tile.mesh.scale.set(tile.mesh.userData.scale, 1, tile.mesh.userData.scale);
+                    }
+                }
+            });
+        });
+
+        renderer.render(scene, camera);
     }
 
-    document.addEventListener('keyup', control);
-    createBoard();
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Start
+    init();
+
 </script>
 </body>
 </html>
