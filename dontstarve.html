@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wilderness: Survive the Night</title>
+    <style>
+        :root {
+            --ui-bg: rgba(43, 43, 43, 0.9);
+            --ui-border: #5d5d5d;
+            --text-color: #e0e0e0;
+            --accent: #d35400;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none; /* Prevent pull-to-refresh on mobile */
+            user-select: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            background-color: #2c3e50;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* HUD: Stats */
+        .hud-stats {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: var(--ui-bg);
+            padding: 10px;
+            border: 2px solid var(--ui-border);
+            border-radius: 8px;
+            pointer-events: auto;
+            color: var(--text-color);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+        }
+
+        .stat-row {
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            width: 200px;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            width: 70px;
+        }
+
+        .stat-bar-bg {
+            flex-grow: 1;
+            height: 10px;
+            background: #333;
+            border: 1px solid #000;
+            position: relative;
+        }
+
+        .stat-bar-fill {
+            height: 100%;
+            background: #e74c3c;
+            width: 100%;
+            transition: width 0.2s;
+        }
+        
+        #hunger-fill { background: #f39c12; }
+        #sanity-fill { background: #9b59b6; }
+
+        /* HUD: Time */
+        .clock-display {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--ui-bg);
+            padding: 5px 15px;
+            border: 2px solid var(--ui-border);
+            border-radius: 20px;
+            color: var(--text-color);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        /* HUD: Inventory */
+        .inventory-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            pointer-events: auto;
+        }
+
+        .inv-slot {
+            width: 50px;
+            height: 50px;
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            border-radius: 5px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            color: white;
+            font-size: 10px;
+        }
+
+        .inv-slot img, .inv-slot .icon {
+            font-size: 20px;
+            margin-bottom: 2px;
+        }
+
+        .inv-count {
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        /* HUD: Crafting */
+        .crafting-menu {
+            position: absolute;
+            top: 100px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: auto;
+        }
+
+        .craft-btn {
+            width: 50px;
+            height: 50px;
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            position: relative;
+            transition: transform 0.1s;
+        }
+
+        .craft-btn:active { transform: scale(0.95); }
+        .craft-btn:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 60px;
+            background: black;
+            color: white;
+            padding: 5px;
+            border-radius: 3px;
+            white-space: nowrap;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .craft-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(1);
+        }
+
+        /* Mobile Controls */
+        #mobile-controls {
+            display: none; /* Shown via JS on touch devices */
+        }
+
+        #joystick-area {
+            position: absolute;
+            bottom: 50px;
+            left: 50px;
+            width: 120px;
+            height: 120px;
+            pointer-events: auto;
+        }
+
+        #action-btn {
+            position: absolute;
+            bottom: 60px;
+            right: 50px;
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            border-radius: 50%;
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: white;
+            user-select: none;
+        }
+        
+        #eat-btn {
+            position: absolute;
+            bottom: 160px;
+            right: 65px;
+            width: 50px;
+            height: 50px;
+            background: rgba(46, 204, 113, 0.4);
+            border: 2px solid #2ecc71;
+            border-radius: 50%;
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            color: white;
+        }
+
+        /* Notifications */
+        #notification-area {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            pointer-events: none;
+            text-align: center;
+        }
+
+        .note {
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            animation: fadeOut 2s forwards;
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; transform: translateY(0); }
+            80% { opacity: 1; transform: translateY(-10px); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+        
+        #death-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            color: #c0392b;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 100;
+        }
+        
+        #death-screen h1 { font-size: 4rem; margin: 0; text-transform: uppercase; letter-spacing: 5px;}
+        #death-screen p { color: white; font-size: 1.5rem; }
+        #restart-btn {
+            margin-top: 20px;
+            padding: 10px 30px;
+            font-size: 1.2rem;
+            background: #c0392b;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        @media (max-width: 768px) {
+            .hud-stats { top: 10px; left: 10px; width: 150px; font-size: 0.8rem; }
+            .crafting-menu { top: 80px; left: 10px; }
+            .inventory-bar { bottom: 10px; gap: 5px; }
+            .inv-slot { width: 40px; height: 40px; }
+            #mobile-controls { display: block; }
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui-layer">
+    <div class="hud-stats">
+        <div class="stat-row">
+            <span class="stat-label">Health</span>
+            <div class="stat-bar-bg"><div id="health-fill" class="stat-bar-fill"></div></div>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Hunger</span>
+            <div class="stat-bar-bg"><div id="hunger-fill" class="stat-bar-fill"></div></div>
+        </div>
+    </div>
+
+    <div class="clock-display" id="clock">Day 1</div>
+
+    <div class="crafting-menu">
+        <div class="craft-btn" id="craft-axe" data-tooltip="Axe (3 Wood, 2 Stone)" onclick="game.craft('axe')">🪓</div>
+        <div class="craft-btn" id="craft-pick" data-tooltip="Pickaxe (3 Wood, 3 Stone)" onclick="game.craft('pickaxe')">⛏️</div>
+        <div class="craft-btn" id="craft-fire" data-tooltip="Campfire (4 Wood, 4 Stone)" onclick="game.craft('campfire')">🔥</div>
+    </div>
+
+    <div class="inventory-bar" id="inventory">
+        <!-- Generated by JS -->
+    </div>
+
+    <div id="notification-area"></div>
+
+    <div id="mobile-controls">
+        <div id="joystick-area"></div>
+        <div id="action-btn" ontouchstart="game.handleInput('space', true)" ontouchend="game.handleInput('space', false)">🖐️</div>
+        <div id="eat-btn" ontouchstart="game.handleInput('e', true)" ontouchend="game.handleInput('e', false)">🍒</div>
+    </div>
+    
+    <div id="death-screen">
+        <h1>You Died</h1>
+        <p id="death-reason">Consumed by darkness.</p>
+        <button id="restart-btn" onclick="location.reload()">Try Again</button>
+    </div>
+</div>
+
+<script>
+/**
+ * Game Constants & Config
+ */
+const TILE_SIZE = 50;
+const WORLD_WIDTH = 2000;
+const WORLD_HEIGHT = 2000;
+const DAY_LENGTH = 6000; // Frames (approx 100 seconds per day)
+const NIGHT_START = 0.65; // 65% of day is light
+const PLAYER_SPEED = 4;
+
+// Resources
+const TYPE_TREE = 'tree';
+const TYPE_ROCK = 'rock';
+const TYPE_BUSH = 'bush';
+const TYPE_FIRE = 'fire';
+
+// Items
+const ITEM_WOOD = 'wood';
+const ITEM_STONE = 'stone';
+const ITEM_BERRY = 'berry';
+
+class Utils {
+    static dist(x1, y1, x2, y2) {
+        return Math.sqrt((x2-x1)**2 + (y2-y1)**2);
+    }
+    
+    static random(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    static rectIntersect(r1, r2) {
+        return !(r2.left > r1.right || 
+                 r2.right < r1.left || 
+                 r2.top > r1.bottom || 
+                 r2.bottom < r1.top);
+    }
+}
+
+class Camera {
+    constructor(width, height) {
+        this.x = 0;
+        this.y = 0;
+        this.width = width;
+        this.height = height;
+    }
+
+    follow(target) {
+        this.x = target.x - this.width / 2;
+        this.y = target.y - this.height / 2;
+        
+        // Clamp to world bounds
+        this.x = Math.max(0, Math.min(this.x, WORLD_WIDTH - this.width));
+        this.y = Math.max(0, Math.min(this.y, WORLD_HEIGHT - this.height));
+    }
+}
+
+class Entity {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.removed = false;
+        this.health = 100;
+        this.maxHealth = 100;
+        this.radius = 20;
+        this.interactRadius = 60;
+        
+        // Stats based on type
+        if(type === TYPE_TREE) { this.health = 30; this.color = '#2ecc71'; }
+        if(type === TYPE_ROCK) { this.health = 50; this.color = '#95a5a6'; }
+        if(type === TYPE_BUSH) { this.health = 10; this.color = '#e74c3c'; }
+        if(type === TYPE_FIRE) { 
+            this.health = 1000; // Fire fuel
+            this.lightRadius = 250;
+        }
+    }
+
+    draw(ctx, camX, camY) {
+        const drawX = this.x - camX;
+        const drawY = this.y - camY;
+
+        // Skip if off screen
+        if (drawX < -50 || drawX > ctx.canvas.width + 50 || 
+            drawY < -50 || drawY > ctx.canvas.height + 50) return;
+
+        ctx.save();
+        ctx.translate(drawX, drawY);
+
+        if (this.type === TYPE_TREE) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath(); ctx.ellipse(5, 20, 15, 8, 0, 0, Math.PI*2); ctx.fill();
+            
+            // Trunk
+            ctx.fillStyle = '#795548';
+            ctx.fillRect(-8, -10, 16, 30);
+            
+            // Leaves
+            ctx.fillStyle = '#2d8446';
+            ctx.beginPath();
+            ctx.moveTo(0, -50);
+            ctx.lineTo(25, 0);
+            ctx.lineTo(-25, 0);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(0, -35);
+            ctx.lineTo(20, 10);
+            ctx.lineTo(-20, 10);
+            ctx.fill();
+        } 
+        else if (this.type === TYPE_ROCK) {
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath(); ctx.ellipse(5, 10, 20, 10, 0, 0, Math.PI*2); ctx.fill();
+
+            ctx.fillStyle = '#7f8c8d';
+            ctx.beginPath();
+            ctx.moveTo(-15, 15);
+            ctx.lineTo(-10, -10);
+            ctx.lineTo(10, -15);
+            ctx.lineTo(20, 10);
+            ctx.fill();
+            // Highlight
+            ctx.fillStyle = '#95a5a6';
+            ctx.beginPath();
+            ctx.moveTo(-5, -5);
+            ctx.lineTo(5, -10);
+            ctx.lineTo(10, 5);
+            ctx.fill();
+        }
+        else if (this.type === TYPE_BUSH) {
+            ctx.fillStyle = '#27ae60';
+            ctx.beginPath(); ctx.arc(0, 5, 15, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(-10, 0, 12, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(10, 0, 12, 0, Math.PI*2); ctx.fill();
+            
+            // Berries
+            ctx.fillStyle = '#c0392b';
+            ctx.beginPath(); ctx.arc(-5, 0, 4, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(5, -5, 4, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 8, 4, 0, Math.PI*2); ctx.fill();
+        }
+        else if (this.type === TYPE_FIRE) {
+            // Logs
+            ctx.fillStyle = '#5d4037';
+            ctx.save(); ctx.rotate(Math.PI/4); ctx.fillRect(-10,-3,20,6); ctx.restore();
+            ctx.save(); ctx.rotate(-Math.PI/4); ctx.fillRect(-10,-3,20,6); ctx.restore();
+            
+            // Flames (flicker effect)
+            const flicker = Math.random() * 5;
+            ctx.fillStyle = `rgba(230, 126, 34, 0.8)`;
+            ctx.beginPath();
+            ctx.moveTo(-8, -5);
+            ctx.quadraticCurveTo(0, -30 - flicker, 8, -5);
+            ctx.fill();
+            ctx.fillStyle = `rgba(241, 196, 15, 0.8)`;
+            ctx.beginPath();
+            ctx.moveTo(-4, -2);
+            ctx.quadraticCurveTo(0, -20 - flicker, 4, -2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+class Player {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.health = 100;
+        this.hunger = 100;
+        this.sanity = 100;
+        this.facing = 1; // 1 right, -1 left
+        this.state = 'idle'; // idle, run, chop
+        this.animTimer = 0;
+        
+        // Equipment multipliers
+        this.chopSpeed = 1;
+        this.mineSpeed = 1;
+        
+        this.inventory = {
+            [ITEM_WOOD]: 0,
+            [ITEM_STONE]: 0,
+            [ITEM_BERRY]: 0
+        };
+
+        this.equipped = null; // 'axe', 'pickaxe'
+    }
+
+    update(input, dt) {
+        // Movement
+        this.vx = 0;
+        this.vy = 0;
+        if (input.keys['ArrowUp'] || input.keys['w']) this.vy = -PLAYER_SPEED;
+        if (input.keys['ArrowDown'] || input.keys['s']) this.vy = PLAYER_SPEED;
+        if (input.keys['ArrowLeft'] || input.keys['a']) { this.vx = -PLAYER_SPEED; this.facing = -1; }
+        if (input.keys['ArrowRight'] || input.keys['d']) { this.vx = PLAYER_SPEED; this.facing = 1; }
+
+        // Joystick Override
+        if (input.joystick.active) {
+            this.vx = input.joystick.x * PLAYER_SPEED;
+            this.vy = input.joystick.y * PLAYER_SPEED;
+            if (this.vx < -0.1) this.facing = -1;
+            if (this.vx > 0.1) this.facing = 1;
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Bounds
+        this.x = Math.max(20, Math.min(this.x, WORLD_WIDTH - 20));
+        this.y = Math.max(20, Math.min(this.y, WORLD_HEIGHT - 20));
+
+        // State & Anim
+        if (Math.abs(this.vx) > 0 || Math.abs(this.vy) > 0) {
+            this.state = 'run';
+            this.animTimer += dt;
+        } else {
+            this.state = 'idle';
+        }
+
+        // Hunger Decay
+        this.hunger -= 0.03;
+        if (this.hunger < 0) {
+            this.hunger = 0;
+            this.health -= 0.1;
+        }
+    }
+
+    draw(ctx, camX, camY) {
+        const drawX = this.x - camX;
+        const drawY = this.y - camY;
+
+        ctx.save();
+        ctx.translate(drawX, drawY);
+        if (this.facing === -1) ctx.scale(-1, 1);
+
+        // Legs (animate)
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        const legOffset = this.state === 'run' ? Math.sin(this.animTimer * 0.2) * 5 : 0;
+        
+        ctx.beginPath(); ctx.moveTo(-5, 10); ctx.lineTo(-5 - legOffset, 25); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(5, 10); ctx.lineTo(5 + legOffset, 25); ctx.stroke();
+
+        // Body
+        ctx.fillStyle = '#d35400';
+        ctx.beginPath();
+        ctx.moveTo(-10, 10);
+        ctx.lineTo(10, 10);
+        ctx.lineTo(8, -10);
+        ctx.lineTo(-8, -10);
+        ctx.fill();
+        ctx.stroke();
+
+        // Head
+        ctx.fillStyle = '#f1c40f'; // Skin
+        ctx.beginPath(); ctx.arc(0, -15, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+        // Hair
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(-12, -18);
+        ctx.lineTo(-5, -28);
+        ctx.lineTo(0, -22);
+        ctx.lineTo(5, -30);
+        ctx.lineTo(12, -18);
+        ctx.stroke();
+
+        // Eyes
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(4, -15, 4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#000';
+        ctx.beginPath(); ctx.arc(4 + (this.vx*0.5), -15, 1.5, 0, Math.PI*2); ctx.fill(); // Pupil tracks movement
+
+        // Arm / Tool
+        ctx.save();
+        // Swing animation if interacting
+        if (game.interacting) ctx.rotate(Math.sin(Date.now() / 50) * 1);
+        
+        ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(15, 5); ctx.stroke();
+        
+        // Draw Tool
+        if (this.equipped === 'axe') {
+            ctx.fillStyle = '#7f8c8d';
+            ctx.translate(15, 5); ctx.rotate(-0.5);
+            ctx.fillRect(0, -10, 2, 20); // Handle
+            ctx.beginPath(); ctx.moveTo(2, -10); ctx.lineTo(10, -5); ctx.lineTo(2, 0); ctx.fill(); // Blade
+        } else if (this.equipped === 'pickaxe') {
+            ctx.fillStyle = '#bdc3c7';
+            ctx.translate(15, 5); ctx.rotate(-0.5);
+            ctx.fillRect(0, -10, 2, 20);
+            ctx.beginPath(); ctx.moveTo(-5, -12); ctx.quadraticCurveTo(1, -8, 7, -12); ctx.stroke(); // Pick head
+        }
+        
+        ctx.restore();
+
+        ctx.restore();
+    }
+}
+
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.camera = new Camera(window.innerWidth, window.innerHeight);
+        this.input = {
+            keys: {},
+            mouse: { x: 0, y: 0, down: false },
+            joystick: { active: false, x: 0, y: 0, originX: 0, originY: 0 }
+        };
+        
+        this.initWorld();
+        this.setupInputs();
+        this.resize();
+
+        this.dayTime = 0; // 0 to DAY_LENGTH
+        this.dayCount = 1;
+        this.darkness = 0;
+        this.interacting = false;
+        this.gameOver = false;
+        
+        this.lastTime = 0;
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+    }
+
+    initWorld() {
+        this.player = new Player(WORLD_WIDTH/2, WORLD_HEIGHT/2);
+        this.entities = [];
+        
+        // Generate World
+        for(let i=0; i<60; i++) {
+            this.entities.push(new Entity(Utils.random(100, WORLD_WIDTH-100), Utils.random(100, WORLD_HEIGHT-100), TYPE_TREE));
+        }
+        for(let i=0; i<30; i++) {
+            this.entities.push(new Entity(Utils.random(100, WORLD_WIDTH-100), Utils.random(100, WORLD_HEIGHT-100), TYPE_ROCK));
+        }
+        for(let i=0; i<40; i++) {
+            this.entities.push(new Entity(Utils.random(100, WORLD_WIDTH-100), Utils.random(100, WORLD_HEIGHT-100), TYPE_BUSH));
+        }
+    }
+
+    setupInputs() {
+        window.addEventListener('keydown', e => this.handleInput(e.key.toLowerCase(), true));
+        window.addEventListener('keyup', e => this.handleInput(e.key.toLowerCase(), false));
+        window.addEventListener('resize', () => this.resize());
+
+        // Touch Joystick Logic
+        const joyArea = document.getElementById('joystick-area');
+        
+        joyArea.addEventListener('touchstart', e => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            this.input.joystick.active = true;
+            this.input.joystick.originX = touch.clientX;
+            this.input.joystick.originY = touch.clientY;
+            
+            // Visual indicator could go here
+        }, {passive: false});
+
+        joyArea.addEventListener('touchmove', e => {
+            e.preventDefault();
+            if(!this.input.joystick.active) return;
+            const touch = e.changedTouches[0];
+            const dx = touch.clientX - this.input.joystick.originX;
+            const dy = touch.clientY - this.input.joystick.originY;
+            
+            // Normalize
+            const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy));
+            const angle = Math.atan2(dy, dx);
+            
+            this.input.joystick.x = (Math.cos(angle) * dist) / 50;
+            this.input.joystick.y = (Math.sin(angle) * dist) / 50;
+        }, {passive: false});
+
+        const endJoy = (e) => {
+            e.preventDefault();
+            this.input.joystick.active = false;
+            this.input.joystick.x = 0;
+            this.input.joystick.y = 0;
+        };
+        joyArea.addEventListener('touchend', endJoy);
+        joyArea.addEventListener('touchcancel', endJoy);
+    }
+
+    handleInput(key, isDown) {
+        this.input.keys[key] = isDown;
+        
+        if (isDown && (key === ' ' || key === 'space')) this.attemptInteract();
+        if (isDown && key === 'e') this.eatFood();
+    }
+
+    resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this.camera.width = this.canvas.width;
+        this.camera.height = this.canvas.height;
+    }
+
+    notify(msg) {
+        const area = document.getElementById('notification-area');
+        const el = document.createElement('div');
+        el.className = 'note';
+        el.innerText = msg;
+        area.appendChild(el);
+        setTimeout(() => el.remove(), 2000);
+    }
+
+    craft(item) {
+        const p = this.player;
+        if (item === 'axe') {
+            if (p.inventory[ITEM_WOOD] >= 3 && p.inventory[ITEM_STONE] >= 2) {
+                p.inventory[ITEM_WOOD] -= 3;
+                p.inventory[ITEM_STONE] -= 2;
+                p.equipped = 'axe';
+                p.chopSpeed = 2;
+                this.notify("Crafted Axe!");
+            } else this.notify("Need: 3 Wood, 2 Stone");
+        }
+        else if (item === 'pickaxe') {
+            if (p.inventory[ITEM_WOOD] >= 3 && p.inventory[ITEM_STONE] >= 3) {
+                p.inventory[ITEM_WOOD] -= 3;
+                p.inventory[ITEM_STONE] -= 3;
+                p.equipped = 'pickaxe';
+                p.mineSpeed = 2;
+                this.notify("Crafted Pickaxe!");
+            } else this.notify("Need: 3 Wood, 3 Stone");
+        }
+        else if (item === 'campfire') {
+            if (p.inventory[ITEM_WOOD] >= 4 && p.inventory[ITEM_STONE] >= 4) {
+                p.inventory[ITEM_WOOD] -= 4;
+                p.inventory[ITEM_STONE] -= 4;
+                const fire = new Entity(p.x + (p.facing * 40), p.y, TYPE_FIRE);
+                this.entities.push(fire);
+                this.notify("Built Campfire!");
+            } else this.notify("Need: 4 Wood, 4 Stone");
+        }
+        this.updateUI();
+    }
+
+    eatFood() {
+        if (this.player.inventory[ITEM_BERRY] > 0 && this.player.hunger < 100) {
+            this.player.inventory[ITEM_BERRY]--;
+            this.player.hunger = Math.min(100, this.player.hunger + 15);
+            this.player.health = Math.min(100, this.player.health + 5);
+            this.notify("Ate berry");
+            this.updateUI();
+        }
+    }
+
+    attemptInteract() {
+        this.interacting = true;
+        setTimeout(() => this.interacting = false, 200);
+
+        // Find closest entity
+        let closest = null;
+        let minDist = 999;
+        
+        this.entities.forEach(e => {
+            const d = Utils.dist(this.player.x, this.player.y, e.x, e.y);
+            if (d < e.interactRadius && d < minDist) {
+                minDist = d;
+                closest = e;
+            }
+        });
+
+        if (closest) {
+            this.hitEntity(closest);
+        }
+    }
+
+    hitEntity(e) {
+        let damage = 10;
+        let toolCorrect = false;
+
+        if (e.type === TYPE_TREE) {
+            if (this.player.equipped === 'axe') { damage = 20; toolCorrect = true; }
+            e.health -= damage;
+            // Visual shake
+            e.x += Math.random()*4 - 2;
+            if (e.health <= 0) {
+                e.removed = true;
+                this.player.inventory[ITEM_WOOD] += 2;
+                if(toolCorrect) this.player.inventory[ITEM_WOOD] += 1; // Bonus
+                this.notify("+ Wood");
+            }
+        }
+        else if (e.type === TYPE_ROCK) {
+            if (this.player.equipped === 'pickaxe') { damage = 20; toolCorrect = true; }
+            e.health -= damage;
+            e.x += Math.random()*4 - 2;
+            if (e.health <= 0) {
+                e.removed = true;
+                this.player.inventory[ITEM_STONE] += 2;
+                if(toolCorrect) this.player.inventory[ITEM_STONE] += 1;
+                this.notify("+ Stone");
+            }
+        }
+        else if (e.type === TYPE_BUSH) {
+            e.removed = true;
+            this.player.inventory[ITEM_BERRY] += 2;
+            this.player.inventory[ITEM_WOOD] += 1; // Sticks
+            this.notify("+ Berries");
+        }
+        else if (e.type === TYPE_FIRE) {
+            // Add fuel
+            if (this.player.inventory[ITEM_WOOD] > 0) {
+                this.player.inventory[ITEM_WOOD]--;
+                e.health += 500;
+                this.notify("Added Fuel");
+            } else {
+                this.notify("Need Wood for fuel");
+            }
+        }
+        
+        this.updateUI();
+    }
+
+    updateUI() {
+        document.getElementById('health-fill').style.width = this.player.health + '%';
+        document.getElementById('hunger-fill').style.width = this.player.hunger + '%';
+        document.getElementById('clock').innerText = `Day ${this.dayCount}`;
+        
+        // Render Inventory
+        const invDiv = document.getElementById('inventory');
+        invDiv.innerHTML = '';
+        
+        const items = [
+            { id: ITEM_WOOD, icon: '🪵', name: 'Wood' },
+            { id: ITEM_STONE, icon: '🪨', name: 'Stone' },
+            { id: ITEM_BERRY, icon: '🍒', name: 'Food' }
+        ];
+
+        items.forEach(i => {
+            const count = this.player.inventory[i.id];
+            invDiv.innerHTML += `
+                <div class="inv-slot">
+                    <span class="icon">${i.icon}</span>
+                    <span class="inv-count">${count}</span>
+                </div>
+            `;
+        });
+
+        // Update buttons state
+        const p = this.player;
+        const axeBtn = document.getElementById('craft-axe');
+        const pickBtn = document.getElementById('craft-pick');
+        const fireBtn = document.getElementById('craft-fire');
+
+        if (p.inventory[ITEM_WOOD] >= 3 && p.inventory[ITEM_STONE] >= 2) axeBtn.classList.remove('disabled'); else axeBtn.classList.add('disabled');
+        if (p.inventory[ITEM_WOOD] >= 3 && p.inventory[ITEM_STONE] >= 3) pickBtn.classList.remove('disabled'); else pickBtn.classList.add('disabled');
+        if (p.inventory[ITEM_WOOD] >= 4 && p.inventory[ITEM_STONE] >= 4) fireBtn.classList.remove('disabled'); else fireBtn.classList.add('disabled');
+    }
+
+    update(dt) {
+        if (this.gameOver) return;
+
+        // Time Cycle
+        this.dayTime += 1;
+        if (this.dayTime >= DAY_LENGTH) {
+            this.dayTime = 0;
+            this.dayCount++;
+            // Respawn some bushes
+            if(Math.random() > 0.5) this.entities.push(new Entity(Utils.random(100, WORLD_WIDTH-100), Utils.random(100, WORLD_HEIGHT-100), TYPE_BUSH));
+        }
+
+        // Calculate Darkness
+        const progress = this.dayTime / DAY_LENGTH;
+        if (progress > NIGHT_START) {
+            // Sunset to Midnight to Sunrise
+            const nightProgress = (progress - NIGHT_START) / (1 - NIGHT_START);
+            // 0 -> 1 -> 0 parabola shape roughly
+            this.darkness = Math.sin(nightProgress * Math.PI) * 0.95; 
+        } else {
+            this.darkness = 0;
+        }
+
+        this.player.update(this.input, dt);
+        
+        // Remove dead entities
+        this.entities = this.entities.filter(e => !e.removed);
+
+        // Update Fires
+        this.entities.forEach(e => {
+            if (e.type === TYPE_FIRE) {
+                e.health -= 1;
+                if (e.health <= 0) e.removed = true;
+            }
+        });
+
+        this.camera.follow(this.player);
+
+        // Check for Light Safety
+        if (this.darkness > 0.8) {
+            let safe = false;
+            this.entities.forEach(e => {
+                if (e.type === TYPE_FIRE && Utils.dist(this.player.x, this.player.y, e.x, e.y) < e.lightRadius) {
+                    safe = true;
+                }
+            });
+
+            if (!safe) {
+                // THE DARKNESS ATTACKS
+                this.player.health -= 0.5;
+                if (Math.random() > 0.9) {
+                    // Screen shake or scary sound effect visualization
+                    this.camera.x += (Math.random() * 10 - 5);
+                    this.camera.y += (Math.random() * 10 - 5);
+                }
+            }
+        }
+
+        if (this.player.health <= 0) {
+            this.gameOver = true;
+            document.getElementById('death-screen').style.display = 'flex';
+        }
+
+        this.updateUI();
+    }
+
+    draw() {
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Background (Grass)
+        ctx.fillStyle = '#3c6e47'; // Base grass color
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Draw grid lines to show movement
+        ctx.strokeStyle = '#366340';
+        ctx.lineWidth = 1;
+        const offsetX = -this.camera.x % TILE_SIZE;
+        const offsetY = -this.camera.y % TILE_SIZE;
+        
+        ctx.beginPath();
+        for(let x = offsetX; x < this.canvas.width; x += TILE_SIZE) {
+            ctx.moveTo(x, 0); ctx.lineTo(x, this.canvas.height);
+        }
+        for(let y = offsetY; y < this.canvas.height; y += TILE_SIZE) {
+            ctx.moveTo(0, y); ctx.lineTo(this.canvas.width, y);
+        }
+        ctx.stroke();
+
+        // Sort entities by Y for pseudo-3D
+        const renderList = [...this.entities, this.player];
+        renderList.sort((a, b) => a.y - b.y);
+
+        renderList.forEach(e => e.draw(ctx, this.camera.x, this.camera.y));
+
+        // Darkness Overlay
+        if (this.darkness > 0.1) {
+            // Create a temporary canvas or use composite operations for lighting
+            // Here we use simple composite operations
+            
+            // 1. Draw full darkness
+            ctx.fillStyle = `rgba(0, 0, 10, ${this.darkness})`;
+            ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // 2. Cut out holes for fires
+            ctx.globalCompositeOperation = 'destination-out';
+            
+            this.entities.forEach(e => {
+                if (e.type === TYPE_FIRE) {
+                    const grad = ctx.createRadialGradient(
+                        e.x - this.camera.x, e.y - this.camera.y, 10,
+                        e.x - this.camera.x, e.y - this.camera.y, e.lightRadius
+                    );
+                    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                    grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(e.x - this.camera.x, e.y - this.camera.y, e.lightRadius, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            });
+
+            // Reset composite
+            ctx.globalCompositeOperation = 'source-over';
+        }
+    }
+
+    loop(timestamp) {
+        if (!this.lastTime) this.lastTime = timestamp;
+        const dt = timestamp - this.lastTime;
+        this.lastTime = timestamp;
+
+        this.update(dt);
+        this.draw();
+        
+        if (!this.gameOver) requestAnimationFrame(this.loop);
+    }
+}
+
+const game = new Game();
+
+</script>
+</body>
+</html>
+
