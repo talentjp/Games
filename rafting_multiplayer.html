@@ -74,18 +74,16 @@
     <!-- Import Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     
-    <!-- Playroom Dependencies (React is required for the UMD build of Playroom) -->
+    <!-- Playroom Dependencies -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <!-- Import Playroom Kit (UMD) - This is the version that defines the global variable 'Playroom' -->
     <script src="https://unpkg.com/playroomkit/multiplayer.umd.js"></script>
 </head>
 <body>
 
     <div id="loading">
         <div class="spinner"></div>
-        <div id="loading-text">Starting Lobby...</div>
+        <div id="loading-text">Connecting to River...</div>
     </div>
 
     <div id="game-container"></div>
@@ -93,7 +91,7 @@
     <div id="ui-layer">
         <div class="hud-top">
             <div id="score">Dist: 0m</div>
-            <div id="players">Paddlers: 0</div>
+            <div id="players">Paddlers: 1</div>
         </div>
         <div id="status-msg">READY?</div>
         <div class="controls">
@@ -105,75 +103,80 @@
     <script>
         // --- Game Constants ---
         const RIVER_WIDTH = 40;
-        const RIVER_LENGTH = 2000; // Total distance
+        const RIVER_LENGTH = 2000;
         const RAFT_SPEED = 0.5;
         const STEER_FORCE = 0.6;
 
         // --- Globals ---
         let scene, camera, renderer;
         let raft, water;
-        let obstacles = [];
-        let isHost = false;
-        let gameStarted = false;
+        let obstacles = []; // 3D Meshes
         
-        // Game State (Synced)
+        let isOnline = false;
+        let isHost = false;
+        let offlineMode = false;
+
+        // Game State
         let gameState = {
             raftX: 0,
             distance: 0,
-            obstacles: [], // {id, x, z, type}
-            status: 'playing', // playing, gameover, won
+            obstacles: [], // Data: {id, x, z, type}
+            status: 'playing'
         };
         
-        // Local Input
-        let localInput = 0; // -1 (left), 0, 1 (right)
+        // Input
+        let localInput = 0; // -1, 0, 1
 
         // --- Initialization ---
         async function init() {
+            // Setup 3D Scene immediately so something is always visible
+            setupThreeJS();
+            
             try {
-                // Initialize Playroom WITH LOBBY
+                // Initialize Playroom
                 await Playroom.insertCoin({
                     skipLobby: false, 
-                    gameId: "river-rush-lobby-v1",
+                    gameId: "river-rush-v2",
                     discord: false
                 });
 
+                isOnline = true;
                 isHost = Playroom.isHost();
 
-                // Setup 3D Scene
-                setupThreeJS();
-                
-                // FORCE INITIAL STATE IF HOST
-                // This ensures clients have something to read immediately
+                // If Host, set initial state
                 if (isHost) {
                     await Playroom.setState('gameState', gameState);
                 }
                 
-                // Hide loading screen
-                const loadingScreen = document.getElementById('loading');
-                loadingScreen.style.opacity = '0';
-                setTimeout(() => loadingScreen.style.display = 'none', 500);
-
-                // Setup Controls
-                setupControls();
-
-                // Start Game Loop
-                gameStarted = true;
-                requestAnimationFrame(animate);
-
+                hideLoading();
+                
             } catch (err) {
-                console.error("Playroom Init Error:", err);
-                document.getElementById('loading-text').innerHTML = "Error connecting.<br>Please refresh.";
-                // Failsafe: Hide loading anyway so they can maybe play solo or see debug
-                setTimeout(() => {
-                    document.getElementById('loading').style.display = 'none';
-                    if (!scene) setupThreeJS();
-                    requestAnimationFrame(animate);
-                }, 2000);
+                console.warn("Playroom connection failed, switching to offline mode:", err);
+                startOfflineMode();
             }
+
+            // Setup Controls
+            setupControls();
+
+            // Start Loop
+            requestAnimationFrame(animate);
+        }
+
+        function startOfflineMode() {
+            offlineMode = true;
+            isHost = true; // Act as host locally
+            document.getElementById('loading-text').innerText = "Offline Mode";
+            hideLoading();
+        }
+
+        function hideLoading() {
+            const el = document.getElementById('loading');
+            el.style.opacity = '0';
+            setTimeout(() => el.style.display = 'none', 500);
         }
 
         function setupThreeJS() {
-            if (scene) return; // Prevent double init
+            if (scene) return;
 
             const container = document.getElementById('game-container');
             
@@ -182,8 +185,7 @@
             scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
-            // Adjusted camera for better visibility
-            camera.position.set(0, 15, -18); 
+            camera.position.set(0, 15, -18);
             camera.lookAt(0, 0, 10);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -191,28 +193,19 @@
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
-            // Lighting
+            // Lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
-
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
             dirLight.position.set(50, 100, -50);
             dirLight.castShadow = true;
-            dirLight.shadow.camera.left = -50;
-            dirLight.shadow.camera.right = 50;
-            dirLight.shadow.camera.top = 50;
-            dirLight.shadow.camera.bottom = -50;
             scene.add(dirLight);
 
             // Water
             const waterGeo = new THREE.PlaneGeometry(RIVER_WIDTH * 3, 200, 40, 40);
             waterGeo.rotateX(-Math.PI / 2);
             const waterMat = new THREE.MeshPhongMaterial({ 
-                color: 0x0099ff, 
-                shininess: 60,
-                transparent: true,
-                opacity: 0.9,
-                flatShading: true 
+                color: 0x0099ff, shininess: 60, transparent: true, opacity: 0.9, flatShading: true 
             });
             water = new THREE.Mesh(waterGeo, waterMat);
             scene.add(water);
@@ -220,11 +213,9 @@
             // Banks
             const bankGeo = new THREE.BoxGeometry(20, 10, 200);
             const bankMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
-            
             const leftBank = new THREE.Mesh(bankGeo, bankMat);
             leftBank.position.set(-(RIVER_WIDTH/2 + 10), -2, 0);
             scene.add(leftBank);
-
             const rightBank = new THREE.Mesh(bankGeo, bankMat);
             rightBank.position.set((RIVER_WIDTH/2 + 10), -2, 0);
             scene.add(rightBank);
@@ -233,17 +224,13 @@
             raft = createRaft();
             scene.add(raft);
 
-            // Handle Window Resize
             window.addEventListener('resize', onWindowResize, false);
         }
 
         function createRaft() {
             const group = new THREE.Group();
-
-            // Logs
             const logGeo = new THREE.CylinderGeometry(0.6, 0.6, 6, 8);
             const logMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-
             for(let i=0; i<5; i++) {
                 const log = new THREE.Mesh(logGeo, logMat);
                 log.rotation.z = Math.PI / 2;
@@ -252,23 +239,19 @@
                 log.castShadow = true;
                 group.add(log);
             }
-
-            // Flag/Mast
             const mastGeo = new THREE.CylinderGeometry(0.1, 0.1, 4, 8);
             const mast = new THREE.Mesh(mastGeo, logMat);
             mast.position.y = 2;
             group.add(mast);
-
             const sailGeo = new THREE.PlaneGeometry(2, 1.5);
             const sailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
             const sail = new THREE.Mesh(sailGeo, sailMat);
             sail.position.set(1, 3.5, 0);
             group.add(sail);
-
             return group;
         }
 
-        function createObstacle(type, x, z) {
+        function createObstacleMesh(type, x, z) {
             let mesh;
             if (type === 'rock') {
                 const geo = new THREE.DodecahedronGeometry(1.5, 0);
@@ -283,7 +266,6 @@
                 mesh.rotation.y = Math.random();
                 mesh.position.y = 0;
             }
-            
             mesh.position.set(x, 0, z);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
@@ -297,24 +279,24 @@
 
             const setInput = (val) => {
                 localInput = val;
-                if (typeof Playroom !== 'undefined' && Playroom.myPlayer()) {
+                if (isOnline && Playroom.myPlayer()) {
                     Playroom.myPlayer().setState('dir', val);
                 }
             };
 
+            // Touch
             btnLeft.addEventListener('pointerdown', (e) => { e.preventDefault(); setInput(-1); btnLeft.style.background = 'rgba(255,255,255,0.6)'; });
             btnLeft.addEventListener('pointerup', (e) => { e.preventDefault(); setInput(0); btnLeft.style.background = ''; });
             btnLeft.addEventListener('pointerleave', (e) => { e.preventDefault(); setInput(0); btnLeft.style.background = ''; });
-
             btnRight.addEventListener('pointerdown', (e) => { e.preventDefault(); setInput(1); btnRight.style.background = 'rgba(255,255,255,0.6)'; });
             btnRight.addEventListener('pointerup', (e) => { e.preventDefault(); setInput(0); btnRight.style.background = ''; });
             btnRight.addEventListener('pointerleave', (e) => { e.preventDefault(); setInput(0); btnRight.style.background = ''; });
 
+            // Keyboard
             window.addEventListener('keydown', (e) => {
                 if(e.key === 'ArrowLeft') { setInput(-1); btnLeft.style.background = 'rgba(255,255,255,0.6)'; }
                 if(e.key === 'ArrowRight') { setInput(1); btnRight.style.background = 'rgba(255,255,255,0.6)'; }
             });
-
             window.addEventListener('keyup', (e) => {
                 if(e.key === 'ArrowLeft' || e.key === 'ArrowRight') { 
                     setInput(0);
@@ -325,125 +307,122 @@
         }
 
         // --- Main Loop ---
-
         function animate() {
             requestAnimationFrame(animate);
 
-            // Ensure Playroom is ready
-            if (typeof Playroom === 'undefined') return;
-
-            const players = Playroom.getPlayers();
+            // 1. Gather Inputs
+            let players = [];
             let totalSteer = 0;
-            players.forEach(p => {
-                const dir = p.getState('dir') || 0;
-                totalSteer += dir;
-            });
+
+            if (isOnline) {
+                players = Playroom.getPlayers();
+                players.forEach(p => { totalSteer += (p.getState('dir') || 0); });
+            } else {
+                // Offline mode: just me
+                players = [{id: 'me'}];
+                totalSteer = localInput;
+            }
             
             document.getElementById('players').innerText = `Paddlers: ${players.length}`;
 
-            // --- Host Logic ---
-            if (isHost) {
+            // 2. Logic (Host or Offline)
+            if (isHost || offlineMode) {
                 if (gameState.status === 'playing') {
-                    // Move Forward
+                    // Forward
                     gameState.distance += RAFT_SPEED;
                     
-                    // Steer logic
+                    // Steer
                     const steerFactor = players.length > 0 ? (totalSteer / players.length) : 0;
                     gameState.raftX -= steerFactor * STEER_FORCE;
-
-                    // Bounds
+                    
+                    // Clamp
                     if (gameState.raftX < -RIVER_WIDTH/2 + 2) gameState.raftX = -RIVER_WIDTH/2 + 2;
                     if (gameState.raftX > RIVER_WIDTH/2 - 2) gameState.raftX = RIVER_WIDTH/2 - 2;
 
-                    // Spawn Obstacles (Randomly)
+                    // Spawn
                     if (Math.random() < 0.05) {
                         const type = Math.random() > 0.5 ? 'rock' : 'log';
                         const x = (Math.random() * (RIVER_WIDTH - 6)) - (RIVER_WIDTH/2 - 3);
-                        const z = 80;
-                        const id = Date.now() + Math.random();
-                        gameState.obstacles.push({ id, x, z, type });
+                        gameState.obstacles.push({ id: Date.now() + Math.random(), x, z: 80, type });
                     }
 
-                    // Update Obstacles
+                    // Move/Cull Obstacles
                     gameState.obstacles.forEach(obs => obs.z -= RAFT_SPEED);
                     gameState.obstacles = gameState.obstacles.filter(obs => obs.z > -20);
 
                     // Collision
-                    const raftRadius = 2.5;
                     gameState.obstacles.forEach(obs => {
-                        const dx = obs.x - gameState.raftX;
-                        const dz = obs.z - 0;
-                        const dist = Math.sqrt(dx*dx + dz*dz);
-                        if (dist < raftRadius + 1.0) gameState.status = 'gameover';
+                        const dist = Math.sqrt(Math.pow(obs.x - gameState.raftX, 2) + Math.pow(obs.z - 0, 2));
+                        if (dist < 3.5) gameState.status = 'gameover';
                     });
 
-                    // Win
                     if (gameState.distance >= RIVER_LENGTH) gameState.status = 'won';
-
-                    Playroom.setState('gameState', gameState);
+                    
+                    // Send to network
+                    if (isOnline) Playroom.setState('gameState', gameState);
                 }
-            } 
+            }
+
+            // 3. Rendering (Common)
             
-            // --- Rendering Logic (All Clients) ---
-            
-            const serverState = Playroom.getState('gameState');
-            if (serverState) {
-                // Lerp Raft
-                if(serverState.raftX !== undefined) {
-                     raft.position.x = THREE.MathUtils.lerp(raft.position.x, serverState.raftX, 0.1);
+            // If we are a client, we override our local gameState with serverState
+            if (isOnline && !isHost) {
+                const s = Playroom.getState('gameState');
+                if (s) {
+                    // Lerp for smoothness
+                    gameState.raftX = THREE.MathUtils.lerp(gameState.raftX, s.raftX || 0, 0.2);
+                    gameState.distance = s.distance;
+                    gameState.status = s.status;
+                    gameState.obstacles = s.obstacles || [];
                 }
-                
-                // Tilt
-                const tilt = totalSteer * -0.05;
-                raft.rotation.z = THREE.MathUtils.lerp(raft.rotation.z, tilt, 0.1);
-                
-                // Bobbing
-                raft.position.y = Math.sin(Date.now() * 0.003) * 0.2;
+            }
 
-                // Sync Visual Obstacles
-                obstacles.forEach(o => o.userData.seen = false);
-
-                if (serverState.obstacles) {
-                    serverState.obstacles.forEach(data => {
-                        let mesh = obstacles.find(o => o.userData.id === data.id);
-                        if (!mesh) {
-                            mesh = createObstacle(data.type, data.x, data.z);
-                            mesh.userData.id = data.id;
-                            obstacles.push(mesh);
-                        }
-                        mesh.position.z = data.z;
-                        mesh.userData.seen = true;
-                    });
-                }
-
-                for (let i = obstacles.length - 1; i >= 0; i--) {
-                    if (!obstacles[i].userData.seen) {
-                        scene.remove(obstacles[i]);
-                        obstacles.splice(i, 1);
-                    }
-                }
-
-                // UI
-                document.getElementById('score').innerText = `Dist: ${Math.floor(serverState.distance)}m / ${RIVER_LENGTH}m`;
-                const statusEl = document.getElementById('status-msg');
-                
-                if (serverState.status === 'gameover') {
-                    statusEl.innerText = "CRASHED! REFRESH TO RETRY";
-                    statusEl.style.display = 'block';
-                    statusEl.style.color = 'red';
-                } else if (serverState.status === 'won') {
-                    statusEl.innerText = "VICTORY!";
-                    statusEl.style.display = 'block';
-                    statusEl.style.color = '#4eff4e';
-                } else {
-                    statusEl.style.display = 'none';
-                }
-            } else {
-                // Fallback rendering even if no state yet
+            // Apply to visual Raft
+            if (raft) {
+                raft.position.x = gameState.raftX;
+                raft.rotation.z = THREE.MathUtils.lerp(raft.rotation.z, totalSteer * -0.05, 0.1);
                 raft.position.y = Math.sin(Date.now() * 0.003) * 0.2;
             }
 
-            // Animate Water
+            // Sync Visual Obstacles
+            // Mark all existing as unseen
+            obstacles.forEach(o => o.userData.seen = false);
+
+            gameState.obstacles.forEach(data => {
+                let mesh = obstacles.find(o => o.userData.id === data.id);
+                if (!mesh) {
+                    mesh = createObstacleMesh(data.type, data.x, data.z);
+                    mesh.userData.id = data.id;
+                    obstacles.push(mesh);
+                }
+                mesh.position.z = data.z; // Update Z
+                mesh.userData.seen = true;
+            });
+
+            // Remove unseen
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                if (!obstacles[i].userData.seen) {
+                    scene.remove(obstacles[i]);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // UI
+            document.getElementById('score').innerText = `Dist: ${Math.floor(gameState.distance)}m / ${RIVER_LENGTH}m`;
+            const statusEl = document.getElementById('status-msg');
+            if (gameState.status === 'gameover') {
+                statusEl.innerText = "CRASHED!";
+                statusEl.style.display = 'block';
+                statusEl.style.color = 'red';
+            } else if (gameState.status === 'won') {
+                statusEl.innerText = "VICTORY!";
+                statusEl.style.display = 'block';
+                statusEl.style.color = '#4eff4e';
+            } else {
+                statusEl.style.display = 'none';
+            }
+
+            // Water Animation
             if(water) {
                 const positions = water.geometry.attributes.position;
                 const time = Date.now() * 0.002;
@@ -466,36 +445,16 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // --- Safe Start ---
-        function safeInit() {
-            if (typeof Playroom !== 'undefined') {
-                init();
-            } else {
-                const checkInterval = setInterval(() => {
-                    if (typeof Playroom !== 'undefined') {
-                        clearInterval(checkInterval);
-                        init();
-                    }
-                }, 100);
-
-                // Timeout fallback
-                setTimeout(() => {
-                    if (typeof Playroom === 'undefined') {
-                        clearInterval(checkInterval);
-                        // Force init anyway to show *something* even if networking fails
-                        console.warn("Playroom load timeout. Starting in offline mode.");
-                        document.getElementById('loading-text').innerHTML = "Multiplayer failed.<br>Starting Offline.";
-                        setTimeout(() => {
-                             document.getElementById('loading').style.display = 'none';
-                             setupThreeJS();
-                             requestAnimationFrame(animate);
-                        }, 1000);
-                    }
-                }, 5000);
-            }
+        // --- Safe Start Check ---
+        if (typeof Playroom === 'undefined') {
+            // SDK didn't load from CDN, start offline
+            startOfflineMode();
+            setupThreeJS();
+            setupControls();
+            requestAnimationFrame(animate);
+        } else {
+            init();
         }
-
-        safeInit();
 
     </script>
 </body>
