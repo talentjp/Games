@@ -47,15 +47,17 @@
             text-shadow: 3px 3px 0 #000;
             text-align: center;
             display: none;
-            pointer-events: auto; /* Allow clicking to restart */
+            pointer-events: auto;
             cursor: pointer;
         }
-        
-        #restart-hint {
-            font-size: 16px;
-            font-weight: normal;
-            margin-top: 10px;
-            opacity: 0.8;
+
+        #debug-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            pointer-events: none;
         }
 
         #loading {
@@ -70,15 +72,6 @@
             z-index: 100;
             transition: opacity 0.5s;
         }
-        .spinner {
-            width: 40px; height: 40px;
-            border: 4px solid #fff;
-            border-top: 4px solid transparent;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
     <!-- Import Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -90,10 +83,7 @@
 </head>
 <body>
 
-    <div id="loading">
-        <div class="spinner"></div>
-        <div id="loading-text">Connecting to River...</div>
-    </div>
+    <div id="loading">Connecting...</div>
 
     <div id="game-container"></div>
 
@@ -104,123 +94,144 @@
         </div>
         <div id="status-msg">
             <div id="status-text">READY?</div>
-            <div id="restart-hint"></div>
+            <div id="restart-hint" style="font-size: 16px; margin-top:10px;"></div>
         </div>
         <div class="controls">
             <div class="btn" id="btn-left">◀</div>
             <div class="btn" id="btn-right">▶</div>
         </div>
+        <div id="debug-info">Init...</div>
     </div>
 
     <script>
-        // --- Game Constants ---
+        // --- Configuration ---
         const RIVER_WIDTH = 40;
         const RIVER_LENGTH = 2000;
         const RAFT_SPEED = 0.5;
         const STEER_FORCE = 0.6;
-        
+
         // --- Globals ---
         let scene, camera, renderer;
         let raft, water;
-        let obstacles = []; // 3D Meshes
-        
+        let obstacles = []; // 3D Mesh Array
         let isOnline = false;
         let isHost = false;
         let offlineMode = false;
+        let myPlayerId = null;
 
-        // Game State
-        let gameState = {
+        // --- Game State ---
+        // 'localState' is what we render. 
+        // If Host, we modify this and broadcast it.
+        // If Client, we overwrite this with data from the network.
+        let localState = {
             raftX: 0,
             distance: 0,
-            obstacles: [], // Data: {id, x, z, type}
-            status: 'playing'
+            obstacles: [], // Data objects {id, x, z, type}
+            status: 'playing',
+            lastSyncTime: 0
         };
-        
-        // Input
+
         let localInput = 0; // -1, 0, 1
 
-        // --- Initialization ---
-        async function init() {
-            // Setup 3D Scene immediately so something is always visible
+        // --- Entry Point ---
+        window.onload = function() {
+            // 1. Setup Graphics immediately (so screen isn't blue)
             setupThreeJS();
             setupControls();
             
-            // Start Loop immediately
+            // 2. Start Animation Loop immediately
             requestAnimationFrame(animate);
-            
-            try {
-                const timeout = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error("Connection timeout")), 3000)
-                );
 
+            // 3. Attempt Connection
+            connectToPlayroom();
+        };
+
+        async function connectToPlayroom() {
+            updateDebug("Connecting...");
+            try {
+                // Timeout protection
+                const timeout = new Promise((_, reject) => setTimeout(() => reject("Timeout"), 4000));
+                
                 await Promise.race([
-                    Playroom.insertCoin({
-                        skipLobby: false, 
-                        gameId: "river-rush-v2",
-                        discord: false
-                    }),
+                    Playroom.insertCoin({ skipLobby: false, gameId: "river-rush-v3", discord: false }),
                     timeout
                 ]);
 
                 isOnline = true;
                 isHost = Playroom.isHost();
-
-                // If Host, set initial state
-                if (isHost) {
-                    await Playroom.setState('gameState', gameState);
-                }
+                myPlayerId = Playroom.myPlayer()?.id;
                 
-            } catch (err) {
-                console.warn("Playroom connection failed or timed out, switching to offline mode:", err);
+                updateDebug(isHost ? "Host Connected" : "Client Connected");
+                
+                // If Host, ensure we broadcast the initial clean state immediately
+                if (isHost) {
+                    await Playroom.setState('gameState', localState);
+                }
+
+                document.getElementById('loading').style.display = 'none';
+
+            } catch (e) {
+                console.warn("Offline Mode:", e);
                 startOfflineMode();
-            } finally {
-                hideLoading();
             }
         }
 
         function startOfflineMode() {
             offlineMode = true;
-            isHost = true;
-            document.getElementById('loading-text').innerText = "Offline Mode";
+            isHost = true; // Play as host locally
+            updateDebug("Offline Mode");
+            document.getElementById('loading').style.display = 'none';
         }
 
-        function hideLoading() {
-            const el = document.getElementById('loading');
-            el.style.opacity = '0';
-            setTimeout(() => el.style.display = 'none', 500);
-        }
-
+        // --- Graphics Setup ---
         function setupThreeJS() {
             if (scene) return;
 
             const container = document.getElementById('game-container');
             
+            // Scene
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
             scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
 
+            // Camera
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
             camera.position.set(0, 15, -18);
             camera.lookAt(0, 0, 10);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
             // Lights
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
             dirLight.position.set(50, 100, -50);
             dirLight.castShadow = true;
             scene.add(dirLight);
 
+            // Environment
+            createEnvironment();
+            
+            // Raft
+            raft = createRaft();
+            scene.add(raft);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function createEnvironment() {
             // Water
             const waterGeo = new THREE.PlaneGeometry(RIVER_WIDTH * 3, 200, 40, 40);
             waterGeo.rotateX(-Math.PI / 2);
             const waterMat = new THREE.MeshPhongMaterial({ 
-                color: 0x0099ff, shininess: 60, transparent: true, opacity: 0.9, flatShading: true 
+                color: 0x0099ff, shininess: 60, flatShading: true, transparent: true, opacity: 0.9 
             });
             water = new THREE.Mesh(waterGeo, waterMat);
             scene.add(water);
@@ -228,70 +239,67 @@
             // Banks
             const bankGeo = new THREE.BoxGeometry(20, 10, 200);
             const bankMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
-            const leftBank = new THREE.Mesh(bankGeo, bankMat);
-            leftBank.position.set(-(RIVER_WIDTH/2 + 10), -2, 0);
-            scene.add(leftBank);
-            const rightBank = new THREE.Mesh(bankGeo, bankMat);
-            rightBank.position.set((RIVER_WIDTH/2 + 10), -2, 0);
-            scene.add(rightBank);
-
-            // Raft
-            raft = createRaft();
-            scene.add(raft);
-
-            window.addEventListener('resize', onWindowResize, false);
+            const left = new THREE.Mesh(bankGeo, bankMat);
+            left.position.set(-(RIVER_WIDTH/2 + 10), -2, 0);
+            scene.add(left);
+            const right = new THREE.Mesh(bankGeo, bankMat);
+            right.position.set((RIVER_WIDTH/2 + 10), -2, 0);
+            scene.add(right);
         }
 
         function createRaft() {
             const group = new THREE.Group();
             const logGeo = new THREE.CylinderGeometry(0.6, 0.6, 6, 8);
             const logMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            
             for(let i=0; i<5; i++) {
                 const log = new THREE.Mesh(logGeo, logMat);
-                log.rotation.z = Math.PI / 2;
-                log.rotation.x = Math.PI / 2;
+                log.rotation.set(Math.PI/2, 0, Math.PI/2);
                 log.position.x = (i - 2) * 1.2;
                 log.castShadow = true;
                 group.add(log);
             }
-            const mastGeo = new THREE.CylinderGeometry(0.1, 0.1, 4, 8);
-            const mast = new THREE.Mesh(mastGeo, logMat);
+            
+            // Sail
+            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4), logMat);
             mast.position.y = 2;
             group.add(mast);
-            const sailGeo = new THREE.PlaneGeometry(2, 1.5);
-            const sailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-            const sail = new THREE.Mesh(sailGeo, sailMat);
+            
+            const sail = new THREE.Mesh(
+                new THREE.PlaneGeometry(2, 1.5), 
+                new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+            );
             sail.position.set(1, 3.5, 0);
             group.add(sail);
+            
             return group;
         }
 
-        function createObstacleMesh(type, x, z) {
+        function createObstacleMesh(data) {
             let mesh;
-            if (type === 'rock') {
-                const geo = new THREE.DodecahedronGeometry(1.5, 0);
-                const mat = new THREE.MeshLambertMaterial({ color: 0x808080 });
-                mesh = new THREE.Mesh(geo, mat);
+            if (data.type === 'rock') {
+                mesh = new THREE.Mesh(
+                    new THREE.DodecahedronGeometry(1.5), 
+                    new THREE.MeshLambertMaterial({ color: 0x808080 })
+                );
                 mesh.position.y = 0.5;
-            } else { // Log
-                const geo = new THREE.CylinderGeometry(0.5, 0.5, 4, 8);
-                const mat = new THREE.MeshLambertMaterial({ color: 0x5c4033 });
-                mesh = new THREE.Mesh(geo, mat);
+            } else {
+                mesh = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.5, 0.5, 4), 
+                    new THREE.MeshLambertMaterial({ color: 0x5c4033 })
+                );
                 mesh.rotation.z = Math.PI / 2;
                 mesh.rotation.y = Math.random();
-                mesh.position.y = 0;
             }
-            mesh.position.set(x, 0, z);
             mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            scene.add(mesh);
             return mesh;
         }
 
+        // --- Controls ---
         function setupControls() {
             const btnLeft = document.getElementById('btn-left');
             const btnRight = document.getElementById('btn-right');
-            const statusMsg = document.getElementById('status-msg');
+            const statusBox = document.getElementById('status-msg');
 
             const setInput = (val) => {
                 localInput = val;
@@ -300,215 +308,218 @@
                 }
             };
 
-            // Restart click handler
-            statusMsg.addEventListener('click', () => {
-                if (isHost || offlineMode) {
-                    if (gameState.status === 'gameover' || gameState.status === 'won') {
-                        restartGame();
-                    }
+            // Restart Handler
+            statusBox.onclick = () => {
+                if ((isHost || offlineMode) && (localState.status === 'gameover' || localState.status === 'won')) {
+                    resetGame();
                 }
-            });
+            };
 
-            // Touch
-            btnLeft.addEventListener('pointerdown', (e) => { e.preventDefault(); setInput(-1); btnLeft.style.background = 'rgba(255,255,255,0.6)'; });
-            btnLeft.addEventListener('pointerup', (e) => { e.preventDefault(); setInput(0); btnLeft.style.background = ''; });
-            btnLeft.addEventListener('pointerleave', (e) => { e.preventDefault(); setInput(0); btnLeft.style.background = ''; });
-            btnRight.addEventListener('pointerdown', (e) => { e.preventDefault(); setInput(1); btnRight.style.background = 'rgba(255,255,255,0.6)'; });
-            btnRight.addEventListener('pointerup', (e) => { e.preventDefault(); setInput(0); btnRight.style.background = ''; });
-            btnRight.addEventListener('pointerleave', (e) => { e.preventDefault(); setInput(0); btnRight.style.background = ''; });
+            // UI Events
+            const bindBtn = (btn, val) => {
+                btn.onpointerdown = (e) => { e.preventDefault(); setInput(val); btn.style.background = 'rgba(255,255,255,0.6)'; };
+                btn.onpointerup = (e) => { e.preventDefault(); setInput(0); btn.style.background = ''; };
+                btn.onpointerleave = (e) => { e.preventDefault(); setInput(0); btn.style.background = ''; };
+            };
+            bindBtn(btnLeft, -1);
+            bindBtn(btnRight, 1);
 
-            // Keyboard
-            window.addEventListener('keydown', (e) => {
+            window.onkeydown = (e) => {
                 if(e.key === 'ArrowLeft') { setInput(-1); btnLeft.style.background = 'rgba(255,255,255,0.6)'; }
                 if(e.key === 'ArrowRight') { setInput(1); btnRight.style.background = 'rgba(255,255,255,0.6)'; }
-            });
-            window.addEventListener('keyup', (e) => {
-                if(e.key === 'ArrowLeft' || e.key === 'ArrowRight') { 
-                    setInput(0);
-                    btnLeft.style.background = '';
-                    btnRight.style.background = '';
-                }
-            });
+            };
+            window.onkeyup = (e) => {
+                if(e.key === 'ArrowLeft' || e.key === 'ArrowRight') { setInput(0); btnLeft.style.background = ''; btnRight.style.background = ''; }
+            };
         }
 
-        function restartGame() {
-            gameState.raftX = 0;
-            gameState.distance = 0;
-            gameState.status = 'playing';
-            gameState.obstacles = [];
+        function resetGame() {
+            localState.raftX = 0;
+            localState.distance = 0;
+            localState.status = 'playing';
+            localState.obstacles = [];
+            if(isOnline) Playroom.setState('gameState', localState);
             
-            if (isOnline) Playroom.setState('gameState', gameState);
-            
-            // Clear local meshes
-            obstacles.forEach(o => scene.remove(o));
+            // Clear meshes
+            obstacles.forEach(m => scene.remove(m));
             obstacles = [];
         }
 
-        // --- Main Loop ---
+        // --- Core Loop ---
         function animate() {
             requestAnimationFrame(animate);
 
-            try {
-                // 1. Gather Inputs
-                let players = [];
-                let totalSteer = 0;
+            // --- 1. Networking / Input Gathering ---
+            let players = [];
+            let totalSteer = 0;
 
-                if (isOnline) {
-                    try {
-                        players = Playroom.getPlayers();
-                        players.forEach(p => { totalSteer += (p.getState('dir') || 0); });
-                    } catch(e) { 
-                        // Playroom might not be ready yet
-                        players = []; 
-                    }
-                } else {
-                    players = [{id: 'me'}];
-                    totalSteer = localInput;
-                }
-                
-                document.getElementById('players').innerText = `Paddlers: ${Math.max(1, players.length)}`;
+            if (isOnline) {
+                try {
+                    players = Playroom.getPlayers();
+                    players.forEach(p => {
+                         // Safety check for player state
+                         let dir = p.getState ? p.getState('dir') : 0;
+                         totalSteer += (Number.isFinite(dir) ? dir : 0);
+                    });
+                } catch(e) { /* Ignore net errors */ }
+            } else {
+                players = [{id: 'me'}];
+                totalSteer = localInput;
+            }
 
-                // 2. Logic (Host or Offline)
-                if (isHost || offlineMode) {
-                    if (gameState.status === 'playing') {
-                        // Forward
-                        gameState.distance += RAFT_SPEED;
-                        
-                        // Steer
-                        const steerFactor = players.length > 0 ? (totalSteer / players.length) : 0;
-                        gameState.raftX -= steerFactor * STEER_FORCE;
-                        
-                        // Clamp
-                        if (gameState.raftX < -RIVER_WIDTH/2 + 2) gameState.raftX = -RIVER_WIDTH/2 + 2;
-                        if (gameState.raftX > RIVER_WIDTH/2 - 2) gameState.raftX = RIVER_WIDTH/2 - 2;
+            // Update Player Count UI
+            const pCount = players.length > 0 ? players.length : 1;
+            document.getElementById('players').innerText = "Paddlers: " + pCount;
 
-                        // Spawn (Only after 200m grace period)
-                        if (gameState.distance > 200 && Math.random() < 0.02) {
-                            const type = Math.random() > 0.5 ? 'rock' : 'log';
-                            const x = (Math.random() * (RIVER_WIDTH - 6)) - (RIVER_WIDTH/2 - 3);
-                            gameState.obstacles.push({ id: Date.now() + Math.random(), x, z: 80, type });
-                        }
+            // --- 2. Game Logic (Host Authority) ---
+            if (isHost || offlineMode) {
+                if (localState.status === 'playing') {
+                    // Move
+                    localState.distance += RAFT_SPEED;
 
-                        // Move/Cull Obstacles
-                        gameState.obstacles.forEach(obs => obs.z -= RAFT_SPEED);
-                        gameState.obstacles = gameState.obstacles.filter(obs => obs.z > -20);
+                    // Steer (Average force)
+                    const steerFactor = totalSteer / pCount;
+                    localState.raftX -= steerFactor * STEER_FORCE;
 
-                        // Collision
-                        gameState.obstacles.forEach(obs => {
-                            const dist = Math.sqrt(Math.pow(obs.x - gameState.raftX, 2) + Math.pow(obs.z - 0, 2));
-                            if (dist < 3.0) gameState.status = 'gameover';
+                    // Clamp (Prevent going off world)
+                    localState.raftX = Math.max(-(RIVER_WIDTH/2 - 2), Math.min((RIVER_WIDTH/2 - 2), localState.raftX));
+
+                    // Spawn Obstacles (Only after 200m)
+                    if (localState.distance > 200 && Math.random() < 0.02) {
+                        localState.obstacles.push({
+                            id: Date.now() + Math.random(),
+                            type: Math.random() > 0.5 ? 'rock' : 'log',
+                            x: (Math.random() * (RIVER_WIDTH - 6)) - (RIVER_WIDTH/2 - 3),
+                            z: 80 // Spawn ahead
                         });
+                    }
 
-                        if (gameState.distance >= RIVER_LENGTH) gameState.status = 'won';
-                        
-                        // Send to network
-                        if (isOnline) Playroom.setState('gameState', gameState);
+                    // Move Obstacles (towards raft)
+                    localState.obstacles.forEach(o => o.z -= RAFT_SPEED);
+                    
+                    // Cleanup old obstacles
+                    localState.obstacles = localState.obstacles.filter(o => o.z > -20);
+
+                    // Collision Check
+                    for (let obs of localState.obstacles) {
+                        const dx = obs.x - localState.raftX;
+                        const dz = obs.z - 0; // Raft is at 0
+                        if (Math.sqrt(dx*dx + dz*dz) < 3.0) {
+                            localState.status = 'gameover';
+                            break;
+                        }
+                    }
+
+                    // Win Check
+                    if (localState.distance >= RIVER_LENGTH) localState.status = 'won';
+
+                    // Broadcast
+                    if (isOnline) {
+                        Playroom.setState('gameState', localState);
                     }
                 }
-
-                // 3. Rendering (Common)
-                
-                // If client, override state
-                if (isOnline && !isHost) {
-                    const s = Playroom.getState('gameState');
-                    if (s) {
-                        gameState.raftX = THREE.MathUtils.lerp(gameState.raftX, s.raftX || 0, 0.2);
-                        gameState.distance = s.distance || 0;
-                        gameState.status = s.status || 'playing';
-                        gameState.obstacles = s.obstacles || [];
-                    }
+            } 
+            // --- 3. Client Synchronization ---
+            else if (isOnline && !isHost) {
+                const serverState = Playroom.getState('gameState');
+                if (serverState && typeof serverState.raftX === 'number') {
+                    // Valid state received
+                    localState.raftX = THREE.MathUtils.lerp(localState.raftX, serverState.raftX, 0.2);
+                    localState.distance = serverState.distance;
+                    localState.status = serverState.status;
+                    localState.obstacles = serverState.obstacles || [];
+                    updateDebug("Client: Synced");
+                } else {
+                    updateDebug("Waiting for Host...");
                 }
+            }
 
-                // Apply to visual Raft
-                if (raft) {
-                    raft.position.x = gameState.raftX;
-                    raft.rotation.z = THREE.MathUtils.lerp(raft.rotation.z, totalSteer * -0.05, 0.1);
-                    raft.position.y = Math.sin(Date.now() * 0.003) * 0.2;
-                }
+            // --- 4. Rendering ---
+            renderScene(totalSteer);
+        }
 
-                // Sync Visual Obstacles
-                obstacles.forEach(o => o.userData.seen = false);
+        function renderScene(steerInput) {
+            if (!raft || !scene || !camera) return;
 
-                gameState.obstacles.forEach(data => {
-                    let mesh = obstacles.find(o => o.userData.id === data.id);
+            // Update Raft Visuals
+            if (Number.isFinite(localState.raftX)) {
+                raft.position.x = localState.raftX;
+            }
+            raft.rotation.z = THREE.MathUtils.lerp(raft.rotation.z, steerInput * -0.05, 0.1);
+            raft.position.y = Math.sin(Date.now() * 0.003) * 0.2;
+
+            // Sync Obstacle Meshes
+            // 1. Mark all existing as 'unseen'
+            obstacles.forEach(m => m.userData.seen = false);
+
+            // 2. Update or Create meshes based on state
+            if (localState.obstacles) {
+                localState.obstacles.forEach(data => {
+                    let mesh = obstacles.find(m => m.userData.id === data.id);
                     if (!mesh) {
-                        mesh = createObstacleMesh(data.type, data.x, data.z);
+                        mesh = createObstacleMesh(data);
                         mesh.userData.id = data.id;
+                        mesh.position.x = data.x; // X never changes after spawn
+                        scene.add(mesh);
                         obstacles.push(mesh);
                     }
                     mesh.position.z = data.z;
                     mesh.userData.seen = true;
                 });
-
-                // Remove unseen
-                for (let i = obstacles.length - 1; i >= 0; i--) {
-                    if (!obstacles[i].userData.seen) {
-                        scene.remove(obstacles[i]);
-                        obstacles.splice(i, 1);
-                    }
-                }
-
-                // UI
-                document.getElementById('score').innerText = `Dist: ${Math.floor(gameState.distance)}m / ${RIVER_LENGTH}m`;
-                
-                const statusEl = document.getElementById('status-msg');
-                const statusText = document.getElementById('status-text');
-                const restartHint = document.getElementById('restart-hint');
-
-                if (gameState.status === 'gameover') {
-                    statusEl.style.display = 'block';
-                    statusText.innerText = "CRASHED!";
-                    statusText.style.color = 'red';
-                    if (isHost || offlineMode) restartHint.innerText = "(Tap to Restart)";
-                    else restartHint.innerText = "Waiting for Host...";
-                } else if (gameState.status === 'won') {
-                    statusEl.style.display = 'block';
-                    statusText.innerText = "VICTORY!";
-                    statusText.style.color = '#4eff4e';
-                    if (isHost || offlineMode) restartHint.innerText = "(Tap to Play Again)";
-                } else {
-                    statusEl.style.display = 'none';
-                }
-
-                // Water Animation
-                if(water) {
-                    const positions = water.geometry.attributes.position;
-                    const time = Date.now() * 0.002;
-                    for(let i = 0; i < positions.count; i++){
-                        const x = positions.getX(i);
-                        const y = positions.getY(i);
-                        const flowY = y - (time * 5); 
-                        const z = Math.sin(x * 0.3 + time) * 0.3 + Math.sin(flowY * 0.2) * 0.5;
-                        positions.setZ(i, z);
-                    }
-                    positions.needsUpdate = true;
-                }
-
-                if (renderer && scene && camera) {
-                    renderer.render(scene, camera);
-                }
-
-            } catch (err) {
-                console.error("Render Loop Error:", err);
             }
+
+            // 3. Remove unseen meshes
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                if (!obstacles[i].userData.seen) {
+                    scene.remove(obstacles[i]);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // Update UI
+            document.getElementById('score').innerText = `Dist: ${Math.floor(localState.distance)}m / ${RIVER_LENGTH}m`;
+            
+            const statusEl = document.getElementById('status-msg');
+            const statusText = document.getElementById('status-text');
+            const hint = document.getElementById('restart-hint');
+
+            if (localState.status === 'gameover') {
+                statusEl.style.display = 'block';
+                statusText.innerText = "CRASHED!";
+                statusText.style.color = '#ff4444';
+                hint.innerText = (isHost || offlineMode) ? "(Tap to Restart)" : "Waiting for Host...";
+            } else if (localState.status === 'won') {
+                statusEl.style.display = 'block';
+                statusText.innerText = "VICTORY!";
+                statusText.style.color = '#4eff4e';
+                hint.innerText = (isHost || offlineMode) ? "(Tap to Play Again)" : "";
+            } else {
+                statusEl.style.display = 'none';
+            }
+
+            // Animate Water
+            if(water) {
+                const pos = water.geometry.attributes.position;
+                const time = Date.now() * 0.002;
+                for(let i=0; i<pos.count; i++) {
+                    const x = pos.getX(i);
+                    const y = pos.getY(i); // This is Z in world space (rotated plane)
+                    // Move wave pattern backwards to simulate forward movement
+                    const flow = y - (time * 5); 
+                    const z = Math.sin(x*0.3 + time)*0.3 + Math.sin(flow*0.2)*0.5;
+                    pos.setZ(i, z);
+                }
+                pos.needsUpdate = true;
+            }
+
+            renderer.render(scene, camera);
         }
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // --- Safe Start Check ---
-        if (typeof Playroom === 'undefined') {
-            startOfflineMode();
-            setupThreeJS();
-            setupControls();
-            requestAnimationFrame(animate);
-        } else {
-            init();
+        function updateDebug(msg) {
+            document.getElementById('debug-info').innerText = msg;
         }
 
     </script>
 </body>
 </html>
+
