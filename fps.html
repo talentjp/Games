@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Neon Defender FPS</title>
     <style>
         body {
@@ -11,6 +11,8 @@
             background-color: #000;
             font-family: 'Courier New', Courier, monospace;
             user-select: none;
+            -webkit-user-select: none;
+            touch-action: none; /* Prevent browser zooming/scrolling */
         }
 
         /* UI Overlay */
@@ -32,6 +34,7 @@
             font-size: 24px;
             cursor: pointer;
             text-shadow: 0 0 10px #0ff;
+            padding: 20px;
         }
 
         #title {
@@ -119,6 +122,115 @@
             transition: opacity 0.1s;
             pointer-events: none;
         }
+
+        /* --- Mobile Controls --- */
+        #mobile-controls {
+            display: none; /* Enabled via JS or Media Query */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .mobile-btn {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid #0ff;
+            border-radius: 50%;
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-weight: bold;
+            font-size: 14px;
+            user-select: none;
+            touch-action: none;
+        }
+        
+        .mobile-btn:active {
+            background: rgba(0, 255, 255, 0.4);
+        }
+
+        #shoot-btn {
+            bottom: 80px;
+            right: 30px;
+            width: 90px;
+            height: 90px;
+            border-color: #ff0;
+            font-size: 18px;
+        }
+
+        #jump-btn {
+            bottom: 190px;
+            right: 40px;
+        }
+
+        #reload-btn {
+            top: 80px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            border-color: #f0f;
+            font-size: 12px;
+        }
+
+        /* Virtual Joystick */
+        #joystick-zone {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50%;
+            height: 100%;
+            pointer-events: auto;
+            z-index: 4;
+        }
+
+        #look-zone {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 50%;
+            height: 100%;
+            pointer-events: auto;
+            z-index: 4;
+        }
+
+        #joystick-base {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            display: none;
+            pointer-events: none;
+        }
+
+        #joystick-stick {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(0, 255, 255, 0.5);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* Show mobile controls on touch devices */
+        @media (hover: none) and (pointer: coarse) {
+            #mobile-controls { display: block; }
+            #health-bar-container { bottom: unset; top: 20px; left: 20px; width: 150px; }
+            #wave-display { top: 60px; font-size: 18px; }
+            #score-display { display: none; } /* Simplify HUD on mobile */
+            #ammo-display { bottom: unset; top: 20px; right: 100px; font-size: 24px; }
+            #title { font-size: 40px; }
+        }
     </style>
 </head>
 <body>
@@ -127,11 +239,9 @@
     <div id="blocker">
         <div id="title">NEON DEFENDER</div>
         <div id="instructions">
-            CLICK TO START<br/><br/>
-            (W, A, S, D) Move<br/>
-            (SPACE) Jump<br/>
-            (MOUSE) Look & Shoot<br/>
-            (R) Reload
+            CLICK / TAP TO START<br/><br/>
+            Desktop: WASD + Mouse<br/>
+            Mobile: Left Side Move, Right Side Aim
         </div>
     </div>
 
@@ -152,6 +262,19 @@
         <div id="wave-display" class="hud-element">WAVE: 1</div>
         <div id="ammo-display" class="hud-element">20 / ∞</div>
         <div id="damage-overlay"></div>
+
+        <!-- Mobile Controls Overlay -->
+        <div id="joystick-zone"></div> <!-- Invisible touch zone for movement -->
+        <div id="look-zone"></div>     <!-- Invisible touch zone for looking -->
+        
+        <div id="mobile-controls">
+            <div id="joystick-base">
+                <div id="joystick-stick"></div>
+            </div>
+            <div id="reload-btn" class="mobile-btn">RELOAD</div>
+            <div id="jump-btn" class="mobile-btn">JUMP</div>
+            <div id="shoot-btn" class="mobile-btn">SHOOT</div>
+        </div>
     </div>
 
     <!-- Import Map (ES Modules for Three.js) -->
@@ -171,7 +294,7 @@
         // --- Configuration ---
         const PLAYER_HEIGHT = 1.6;
         const PLAYER_SPEED = 10.0;
-        const PLAYER_JUMP_FORCE = 15.0; // Reduced for better feel
+        const PLAYER_JUMP_FORCE = 15.0;
         const GRAVITY = 30.0;
         const BULLET_SPEED = 60;
         const ENEMY_SPEED = 4;
@@ -179,7 +302,6 @@
 
         // --- Global Variables ---
         let camera, scene, renderer, controls;
-        let raycaster;
         
         // Game State
         let moveForward = false;
@@ -193,10 +315,18 @@
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
 
+        // Mobile Controls State
+        let joystickVector = { x: 0, y: 0 };
+        let touchLookVector = { x: 0, y: 0 };
+        let touchIdMove = null;
+        let touchIdLook = null;
+        let lastLookX = 0;
+        let lastLookY = 0;
+
         // Game Objects
         let bullets = [];
         let enemies = [];
-        let particles = []; // For explosions
+        let particles = []; 
         let gunModel;
         let muzzleLight;
 
@@ -220,6 +350,15 @@
         const waveDisplay = document.getElementById('wave-display');
         const ammoDisplay = document.getElementById('ammo-display');
         const damageOverlay = document.getElementById('damage-overlay');
+
+        // Mobile UI
+        const joystickZone = document.getElementById('joystick-zone');
+        const lookZone = document.getElementById('look-zone');
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickStick = document.getElementById('joystick-stick');
+        const shootBtn = document.getElementById('shoot-btn');
+        const jumpBtn = document.getElementById('jump-btn');
+        const reloadBtn = document.getElementById('reload-btn');
 
         init();
         animate();
@@ -246,30 +385,40 @@
             // 4. Controls
             controls = new PointerLockControls(camera, document.body);
 
+            // Desktop Start
             instructions.addEventListener('click', () => {
                 controls.lock();
             });
+
+            // Mobile Start
+            instructions.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent ghost clicks
+                startGameMobile();
+            }, { passive: false });
 
             controls.addEventListener('lock', () => {
                 instructions.style.display = 'none';
                 blocker.style.display = 'none';
                 hud.style.display = 'block';
                 isGameActive = true;
-                // Resume audio context if suspended
                 if (audioCtx.state === 'suspended') audioCtx.resume();
             });
 
             controls.addEventListener('unlock', () => {
-                blocker.style.display = 'flex';
-                instructions.style.display = 'block';
-                instructions.innerHTML = "PAUSED<br/><br/>Click to Resume";
-                hud.style.display = 'none';
-                isGameActive = false;
+                // Only pause if we aren't in mobile mode (mobile mode doesn't use pointer lock)
+                // We detect mobile mode by checking if we have touch events active
+                if (!isMobileDevice()) {
+                    blocker.style.display = 'flex';
+                    instructions.style.display = 'block';
+                    instructions.innerHTML = "PAUSED<br/><br/>Click to Resume";
+                    hud.style.display = 'none';
+                    isGameActive = false;
+                }
             });
 
             scene.add(controls.getObject());
 
-            // 5. Input Listeners
+            // 5. Input Listeners (Keyboard)
             const onKeyDown = function (event) {
                 switch (event.code) {
                     case 'ArrowUp':
@@ -304,14 +453,18 @@
             document.addEventListener('keydown', onKeyDown);
             document.addEventListener('keyup', onKeyUp);
             document.addEventListener('mousedown', (e) => {
-                if(isGameActive && e.button === 0) shoot();
+                // Only shoot on mouse click if not touching a UI button
+                if(isGameActive && e.button === 0 && !e.target.classList.contains('mobile-btn')) shoot();
             });
 
-            // 6. World Generation
+            // 6. Mobile Input Listeners
+            setupMobileControls();
+
+            // 7. World Generation
             createLevel();
             createGun();
 
-            // 7. Renderer
+            // 8. Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -324,12 +477,131 @@
             setInterval(spawnEnemy, 2000);
         }
 
+        function startGameMobile() {
+            instructions.style.display = 'none';
+            blocker.style.display = 'none';
+            hud.style.display = 'block';
+            isGameActive = true;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function isMobileDevice() {
+            return (('ontouchstart' in window) ||
+               (navigator.maxTouchPoints > 0) ||
+               (navigator.msMaxTouchPoints > 0));
+        }
+
+        function setupMobileControls() {
+            // Joystick Logic
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                touchIdMove = touch.identifier;
+                
+                // Show visual joystick
+                joystickBase.style.display = 'block';
+                joystickBase.style.left = (touch.clientX - 50) + 'px';
+                joystickBase.style.top = (touch.clientY - 50) + 'px';
+                joystickStick.style.transform = `translate(-50%, -50%)`;
+                
+                joystickVector.x = 0;
+                joystickVector.y = 0;
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === touchIdMove) {
+                        const touch = e.changedTouches[i];
+                        const baseX = parseFloat(joystickBase.style.left) + 50;
+                        const baseY = parseFloat(joystickBase.style.top) + 50;
+                        
+                        let dx = touch.clientX - baseX;
+                        let dy = touch.clientY - baseY;
+                        
+                        // Clamp visual
+                        const distance = Math.sqrt(dx*dx + dy*dy);
+                        const maxDist = 40;
+                        if (distance > maxDist) {
+                            const ratio = maxDist / distance;
+                            dx *= ratio;
+                            dy *= ratio;
+                        }
+
+                        joystickStick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                        
+                        // Normalize output -1 to 1
+                        joystickVector.x = dx / maxDist;
+                        joystickVector.y = dy / maxDist;
+                    }
+                }
+            }, { passive: false });
+
+            const endJoystick = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === touchIdMove) {
+                        touchIdMove = null;
+                        joystickBase.style.display = 'none';
+                        joystickVector.x = 0;
+                        joystickVector.y = 0;
+                    }
+                }
+            };
+            joystickZone.addEventListener('touchend', endJoystick);
+            joystickZone.addEventListener('touchcancel', endJoystick);
+
+            // Look Logic
+            lookZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                touchIdLook = touch.identifier;
+                lastLookX = touch.clientX;
+                lastLookY = touch.clientY;
+            }, { passive: false });
+
+            lookZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === touchIdLook) {
+                        const touch = e.changedTouches[i];
+                        const dx = touch.clientX - lastLookX;
+                        const dy = touch.clientY - lastLookY;
+                        
+                        // Update Look Vector (consumed in animate)
+                        touchLookVector.x += dx;
+                        touchLookVector.y += dy;
+                        
+                        lastLookX = touch.clientX;
+                        lastLookY = touch.clientY;
+                    }
+                }
+            }, { passive: false });
+
+            const endLook = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === touchIdLook) {
+                        touchIdLook = null;
+                    }
+                }
+            };
+            lookZone.addEventListener('touchend', endLook);
+            
+            // Buttons
+            shootBtn.addEventListener('touchstart', (e) => { e.preventDefault(); shoot(); }, { passive: false });
+            jumpBtn.addEventListener('touchstart', (e) => { 
+                e.preventDefault(); 
+                if (canJump === true) velocity.y += PLAYER_JUMP_FORCE;
+                canJump = false;
+            }, { passive: false });
+            reloadBtn.addEventListener('touchstart', (e) => { e.preventDefault(); reload(); }, { passive: false });
+        }
+
         function createLevel() {
             // Floor - Tron Grid
             const gridHelper = new THREE.GridHelper(200, 50, 0x00ffff, 0x222222);
             scene.add(gridHelper);
 
-            // Floor Plane (invisible for physics, visible for reflection if needed)
+            // Floor Plane
             const floorGeometry = new THREE.PlaneGeometry(200, 200, 100, 100);
             const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x050510 });
             const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -344,17 +616,14 @@
 
             for (let i = 0; i < 20; i++) {
                 const box = new THREE.Mesh(boxGeo, boxMat);
-                // Keep center clear for spawning
                 let x = Math.random() * 100 - 50;
                 let z = Math.random() * 100 - 50;
-                
                 if (Math.abs(x) < 10 && Math.abs(z) < 10) { x += 20; }
 
                 box.position.x = x;
-                box.position.y = 2.5; // Half height
+                box.position.y = 2.5; 
                 box.position.z = z;
                 
-                // Add neon edges
                 const edges = new THREE.LineSegments(edgesGeo, edgesMat);
                 box.add(edges);
 
@@ -384,7 +653,6 @@
             muzzleLight.position.set(0, 0.1, -0.6);
             gunModel.add(muzzleLight);
 
-            // Attach to camera
             camera.add(gunModel);
             gunModel.position.set(0.3, -0.3, -0.5);
         }
@@ -428,37 +696,25 @@
         }
 
         function shoot() {
-            if (ammo <= 0 || isReloading) {
-                // Click sound for empty
-                return;
-            }
+            if (ammo <= 0 || isReloading) return;
 
             ammo--;
             updateHUD();
             createSound('shoot');
 
-            // Recoil Animation
             gunModel.position.z += 0.2;
-            
-            // Muzzle Flash
             muzzleLight.intensity = 5;
             setTimeout(() => { muzzleLight.intensity = 0; }, 50);
-
-            // Raycaster for hit detection
-            const raycaster = new THREE.Raycaster();
-            raycaster.setFromCamera( new THREE.Vector2(), camera );
 
             // Visual Bullet
             const bulletGeo = new THREE.SphereGeometry(0.05);
             const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
             const bullet = new THREE.Mesh(bulletGeo, bulletMat);
             
-            // Set start position (gun muzzle)
             const worldPos = new THREE.Vector3();
-            gunModel.children[1].getWorldPosition(worldPos); // Get barrel position
+            gunModel.children[1].getWorldPosition(worldPos); 
             bullet.position.copy(worldPos);
             
-            // Velocity based on camera look direction
             const direction = new THREE.Vector3();
             camera.getWorldDirection(direction);
             bullet.userData = { velocity: direction.multiplyScalar(BULLET_SPEED) };
@@ -472,10 +728,8 @@
             isReloading = true;
             ammoDisplay.textContent = "RELOADING...";
             
-            // Animate Gun Down
             const originalRot = gunModel.rotation.x;
             
-            // Simple timeout based reload
             let reloadInterval = setInterval(() => {
                 gunModel.rotation.x -= 0.1;
             }, 50);
@@ -486,14 +740,13 @@
                 isReloading = false;
                 updateHUD();
                 gunModel.rotation.x = originalRot;
-                gunModel.position.set(0.3, -0.3, -0.5); // Reset position
+                gunModel.position.set(0.3, -0.3, -0.5);
             }, 1000);
         }
 
         function spawnEnemy() {
             if (!isGameActive || enemies.length > 5 + wave) return;
 
-            // Geometry
             const geometry = new THREE.IcosahedronGeometry(1, 0);
             const material = new THREE.MeshPhongMaterial({ 
                 color: 0xff0000, 
@@ -504,7 +757,6 @@
             });
             const enemy = new THREE.Mesh(geometry, material);
 
-            // Spawn at random edge of map
             const angle = Math.random() * Math.PI * 2;
             const radius = 40 + Math.random() * 20;
             enemy.position.x = Math.cos(angle) * radius;
@@ -539,7 +791,6 @@
             
             const particleSystem = new THREE.Points(geometry, material);
             
-            // Store velocities
             const velocities = [];
             for(let i=0; i<particleCount; i++) {
                 velocities.push({
@@ -566,8 +817,14 @@
         }
 
         function gameOver() {
-            controls.unlock();
-            instructions.innerHTML = `GAME OVER<br/>Score: ${score}<br/>Wave: ${wave}<br/><br/>Click to Restart`;
+            isGameActive = false;
+            // Show start screen again
+            blocker.style.display = 'flex';
+            instructions.style.display = 'block';
+            instructions.innerHTML = `GAME OVER<br/>Score: ${score}<br/>Wave: ${wave}<br/><br/>Tap to Restart`;
+            
+            // Unlock pointer if using desktop
+            if(!isMobileDevice()) controls.unlock();
             
             // Reset Game
             score = 0;
@@ -575,7 +832,6 @@
             wave = 1;
             ammo = MAX_AMMO;
             
-            // Remove all enemies
             enemies.forEach(e => scene.remove(e));
             enemies = [];
             bullets.forEach(b => scene.remove(b));
@@ -602,30 +858,54 @@
             const delta = (time - prevTime) / 1000;
             prevTime = time;
 
+            // --- Camera Rotation (Mobile) ---
+            if (Math.abs(touchLookVector.x) > 0 || Math.abs(touchLookVector.y) > 0) {
+                const sensitivity = 0.002;
+                // Rotate the camera object (which is wrapped by PointerLockControls)
+                controls.getObject().rotation.y -= touchLookVector.x * sensitivity;
+                
+                // Pitch (up/down) is trickier with Euler, but modifying rotation.x works if Order is YXZ
+                // PointerLockControls usually ensures YXZ.
+                // NOTE: PointerLockControls internally accumulates rotation in .rotation.
+                // We access the camera directly via controls.getObject()
+                
+                // We need to implement clamp for Pitch
+                const pitch = controls.getObject().rotation.x - (touchLookVector.y * sensitivity);
+                controls.getObject().rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+                
+                touchLookVector.x = 0;
+                touchLookVector.y = 0;
+            }
+
             // --- Player Movement Physics ---
             velocity.x -= velocity.x * 10.0 * delta;
             velocity.z -= velocity.z * 10.0 * delta;
-            velocity.y -= GRAVITY * delta; // Gravity
+            velocity.y -= GRAVITY * delta; 
 
-            direction.z = Number(moveForward) - Number(moveBackward);
-            direction.x = Number(moveRight) - Number(moveLeft);
-            direction.normalize(); // Ensure consistent speed in all directions
+            // Input mixing (Keyboard OR Joystick)
+            const inputFwd = (moveForward ? 1 : 0) - (moveBackward ? 1 : 0) - joystickVector.y;
+            const inputRight = (moveRight ? 1 : 0) - (moveLeft ? 1 : 0) + joystickVector.x;
 
-            if (moveForward || moveBackward) velocity.z -= direction.z * PLAYER_SPEED * 40.0 * delta; // 40.0 = mass adjustment
-            if (moveLeft || moveRight) velocity.x -= direction.x * PLAYER_SPEED * 40.0 * delta;
+            direction.z = inputFwd;
+            direction.x = inputRight;
+            direction.normalize(); 
+
+            if (Math.abs(inputFwd) > 0 || Math.abs(inputRight) > 0) {
+                 velocity.z -= direction.z * PLAYER_SPEED * 40.0 * delta;
+                 velocity.x -= direction.x * PLAYER_SPEED * 40.0 * delta;
+            }
 
             controls.moveRight(-velocity.x * delta);
             controls.moveForward(-velocity.z * delta);
             controls.getObject().position.y += (velocity.y * delta);
 
-            // Floor Collision / Jump Reset
+            // Floor Collision
             if (controls.getObject().position.y < PLAYER_HEIGHT) {
                 velocity.y = 0;
                 controls.getObject().position.y = PLAYER_HEIGHT;
                 canJump = true;
             }
 
-            // Gun Recoil Recovery
             if (gunModel) {
                 gunModel.position.z = THREE.MathUtils.lerp(gunModel.position.z, -0.5, 0.1);
             }
@@ -635,25 +915,20 @@
                 const b = bullets[i];
                 b.position.addScaledVector(b.userData.velocity, delta);
 
-                // Distance culling
                 if (b.position.distanceTo(controls.getObject().position) > 100) {
                     scene.remove(b);
                     bullets.splice(i, 1);
                     continue;
                 }
 
-                // Check collision with enemies
-                // Simple distance check is faster than raycasting for many objects
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const e = enemies[j];
-                    if (b.position.distanceTo(e.position) < 1.5) { // Hit radius
+                    if (b.position.distanceTo(e.position) < 1.5) { 
                         
-                        // Hit logic
                         createSound('hit');
                         createExplosion(b.position, 0xffff00);
                         
                         e.userData.health--;
-                        // Flash enemy white
                         e.material.emissive.setHex(0xffffff);
                         setTimeout(() => { if(e) e.material.emissive.setHex(0xaa0000); }, 50);
 
@@ -663,18 +938,16 @@
                             scene.remove(e);
                             enemies.splice(j, 1);
                             score += 10;
-                            // Wave Progression
                             if (score % 100 === 0) {
                                 wave++;
-                                health = Math.min(100, health + 20); // Heal on wave up
+                                health = Math.min(100, health + 20); 
                             }
                             updateHUD();
                         }
 
-                        // Remove bullet
                         scene.remove(b);
                         bullets.splice(i, 1);
-                        break; // Bullet hits one enemy
+                        break; 
                     }
                 }
             }
@@ -685,16 +958,12 @@
                 const e = enemies[i];
                 e.lookAt(playerPos);
                 e.translateZ(e.userData.speed * delta);
-                
-                // Bobbing animation
                 e.position.y = 1 + Math.sin(time * 0.005 + i) * 0.5;
 
-                // Player Collision
                 if (e.position.distanceTo(playerPos) < 2) {
-                    health -= 1; // Damage per frame inside player
+                    health -= 1; 
                     updateHUD();
                     
-                    // Red screen flash
                     damageOverlay.style.opacity = 0.5;
                     setTimeout(() => { damageOverlay.style.opacity = 0; }, 100);
 
