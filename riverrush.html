@@ -31,9 +31,9 @@
             font-size: 40px;
             color: white;
             cursor: pointer;
-            touch-action: none; /* Critical for mobile responsiveness */
+            touch-action: none;
         }
-        .btn.active { background: rgba(0, 255, 0, 0.5); transform: scale(0.95); }
+        .btn.active { background: rgba(0, 255, 0, 0.5); transform: scale(0.95); border-color: #0f0; }
         
         #status-overlay {
             position: absolute;
@@ -57,10 +57,10 @@
             color: #0f0;
             font-family: monospace;
             padding: 10px;
-            font-size: 12px;
+            font-size: 14px;
             border-radius: 5px;
             pointer-events: none;
-            max-width: 200px;
+            max-width: 300px;
             white-space: pre-wrap;
         }
 
@@ -75,6 +75,9 @@
             justify-content: center;
             z-index: 100;
         }
+
+        /* Keyboard hint */
+        .key-hint { font-size: 14px; color: rgba(255,255,255,0.7); display: block; margin-top: 5px; font-weight: normal; }
     </style>
     <!-- Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -102,8 +105,8 @@
         </div>
 
         <div class="controls">
-            <div class="btn" id="btn-left">◀</div>
-            <div class="btn" id="btn-right">▶</div>
+            <div class="btn" id="btn-left">◀ <span class="key-hint">(A)</span></div>
+            <div class="btn" id="btn-right">▶ <span class="key-hint">(D)</span></div>
         </div>
     </div>
 
@@ -113,7 +116,7 @@
             width: 40,
             length: 2000,
             speed: 0.6,
-            steerForce: 0.7
+            steerForce: 0.5 // Base force per player
         };
 
         // --- State ---
@@ -139,13 +142,14 @@
             setupGraphics();
             setupControls();
             
-            // Start render loop immediately so we see something
+            // Start render loop immediately
             requestAnimationFrame(renderLoop);
 
             try {
+                // Connect
                 await Playroom.insertCoin({ 
                     skipLobby: false, 
-                    gameId: "river-rush-v4",
+                    gameId: "river-rush-v5",
                     discord: false 
                 });
                 
@@ -156,16 +160,15 @@
                 document.getElementById('loading').style.display = 'none';
 
                 if(isHost) {
-                    // Host initializes state immediately
                     Playroom.setState('game', game);
                 }
 
             } catch(e) {
                 console.error(e);
-                document.getElementById('loading').innerText = "Offline Mode (Net Error)";
+                document.getElementById('loading').innerText = "Offline Mode";
                 setTimeout(() => document.getElementById('loading').style.display = 'none', 1000);
                 connected = false;
-                isHost = true; // Fallback to host in offline
+                isHost = true;
             }
         };
 
@@ -181,25 +184,25 @@
             } catch(e) { players = []; }
 
             let totalSteer = 0;
-            let inputDebug = [];
+            let debugStr = "";
 
             if (connected && players.length > 0) {
-                players.forEach(p => {
-                    // Safe access to state
+                players.forEach((p, index) => {
                     const dir = p.getState('input');
                     const val = (typeof dir === 'number') ? dir : 0;
                     totalSteer += val;
-                    inputDebug.push(val);
+                    // Debug string to see individual inputs
+                    debugStr += `P${index+1}: ${val > 0 ? '→' : (val < 0 ? '←' : '•')} `;
                 });
             } else {
-                // Offline fallback
+                // Offline or Solo
                 totalSteer = localInput;
-                inputDebug = [localInput];
+                debugStr = `Solo: ${localInput}`;
             }
 
-            // 2. Physics
-            const steerFactor = players.length > 0 ? (totalSteer / players.length) : (totalSteer);
-            game.raftX -= steerFactor * CONFIG.steerForce;
+            // 2. Physics (Sum of Inputs)
+            // If 2 players press Left, force is -2 * 0.5 = -1.0 speed
+            game.raftX -= totalSteer * CONFIG.steerForce;
             
             // Clamp
             const limit = CONFIG.width / 2 - 2;
@@ -209,7 +212,6 @@
             game.distance += CONFIG.speed;
 
             // Spawning
-            // Grace period of 100m
             if (game.distance > 100 && Math.random() < 0.02) {
                 const type = Math.random() > 0.5 ? 'rock' : 'log';
                 const x = (Math.random() * (CONFIG.width - 6)) - (CONFIG.width/2 - 3);
@@ -217,18 +219,18 @@
                     id: Date.now() + Math.random(),
                     type: type,
                     x: x,
-                    z: 80 // Spawn ahead
+                    z: 80
                 });
             }
 
             // Move Obstacles
             game.obstacles.forEach(o => o.z -= CONFIG.speed);
-            game.obstacles = game.obstacles.filter(o => o.z > -20); // Cull behind
+            game.obstacles = game.obstacles.filter(o => o.z > -20); 
 
             // Collision
             for (let o of game.obstacles) {
                 const dx = o.x - game.raftX;
-                const dz = o.z; // Raft is at z=0
+                const dz = o.z; 
                 const hitDist = 2.5; 
                 if (Math.sqrt(dx*dx + dz*dz) < hitDist) {
                     game.status = 'gameover';
@@ -239,13 +241,11 @@
             if (game.distance >= CONFIG.length) game.status = 'won';
 
             // 3. Network Sync
-            // IMPORTANT: Send a fresh object copy
             if (connected) {
                 Playroom.setState('game', { ...game }); 
             }
 
-            // Debug UI
-            updateDebug(`HOST\nInputs: [${inputDebug.join(',')}]\nRaftX: ${game.raftX.toFixed(1)}\nObs: ${game.obstacles.length}`);
+            updateDebug(`HOST (Physics Active)\nTotal Force: ${totalSteer}\n${debugStr}`);
         }
 
         function updateClientLogic() {
@@ -253,15 +253,15 @@
 
             const serverState = Playroom.getState('game');
             if (serverState) {
-                // Interpolate raft X
+                // Interpolate
                 game.raftX = THREE.MathUtils.lerp(game.raftX, serverState.raftX || 0, 0.2);
                 game.distance = serverState.distance || 0;
                 game.status = serverState.status || 'playing';
-                game.obstacles = serverState.obstacles || []; // Direct copy arrays
+                game.obstacles = serverState.obstacles || [];
                 
-                updateDebug(`CLIENT\nRaftX: ${game.raftX.toFixed(1)}\nStatus: ${game.status}`);
+                updateDebug(`CLIENT (Syncing)\nMy Input: ${localInput}\nReceiving Pos: ${game.raftX.toFixed(1)}`);
             } else {
-                updateDebug(`CLIENT\nWaiting for state...`);
+                updateDebug(`CLIENT\nWaiting for Host...`);
             }
         }
 
@@ -269,34 +269,27 @@
         function renderLoop() {
             requestAnimationFrame(renderLoop);
 
-            // Logic Step
             if (isHost) {
                 updateHostLogic();
             } else {
                 updateClientLogic();
             }
 
-            // Update Visuals based on 'game' state
+            // Visuals
             if (raftMesh) {
                 raftMesh.position.x = game.raftX;
-                // Add simple bobbing
                 raftMesh.position.y = Math.sin(Date.now() * 0.003) * 0.2;
-                // Tilt based on raft position change (simulated)
-                // We don't have steer var here easily for client, so just tilt on x velocity could work
-                // or just keep it flat for stability. Let's do slight tilt on position
                 raftMesh.rotation.z = -game.raftX * 0.01; 
             }
 
-            // Sync Obstacles
             syncObstacleMeshes();
 
-            // Water Animation
             if (waterMesh) {
                 const pos = waterMesh.geometry.attributes.position;
                 const time = Date.now() * 0.003;
                 for(let i=0; i<pos.count; i++){
                     const x = pos.getX(i);
-                    const y = pos.getY(i); // World Z due to rotation
+                    const y = pos.getY(i); 
                     const flow = y - (time * 8); 
                     const z = Math.sin(x*0.4 + time)*0.2 + Math.sin(flow*0.3)*0.4;
                     pos.setZ(i, z);
@@ -308,18 +301,12 @@
             document.getElementById('score').innerText = `${Math.floor(game.distance)}m / ${CONFIG.length}m`;
             
             const overlay = document.getElementById('status-overlay');
-            const statusText = document.getElementById('status-text');
             const restartBtn = document.getElementById('restart-btn');
 
-            if (game.status === 'gameover') {
+            if (game.status !== 'playing') {
                 overlay.style.display = 'block';
-                statusText.innerText = "CRASHED!";
-                statusText.style.color = '#ff4444';
-                restartBtn.style.display = isHost ? 'inline-block' : 'none';
-            } else if (game.status === 'won') {
-                overlay.style.display = 'block';
-                statusText.innerText = "VICTORY!";
-                statusText.style.color = '#4eff4e';
+                document.getElementById('status-text').innerText = game.status === 'won' ? "VICTORY!" : "CRASHED!";
+                document.getElementById('status-text').style.color = game.status === 'won' ? '#4eff4e' : '#ff4444';
                 restartBtn.style.display = isHost ? 'inline-block' : 'none';
             } else {
                 overlay.style.display = 'none';
@@ -328,19 +315,13 @@
             renderer.render(scene, camera);
         }
 
-        // --- Helpers ---
-
         function syncObstacleMeshes() {
-            // 1. Reset 'seen' flag
             obstacleMeshes.forEach(m => m.userData.seen = false);
-
-            // 2. Match data to meshes
             game.obstacles.forEach(data => {
                 let mesh = obstacleMeshes.find(m => m.userData.id === data.id);
                 if (!mesh) {
                     mesh = createObstacleMesh(data.type);
                     mesh.userData.id = data.id;
-                    // X is constant once spawned
                     mesh.position.x = data.x;
                     scene.add(mesh);
                     obstacleMeshes.push(mesh);
@@ -348,8 +329,6 @@
                 mesh.position.z = data.z;
                 mesh.userData.seen = true;
             });
-
-            // 3. Remove unseen
             for (let i = obstacleMeshes.length - 1; i >= 0; i--) {
                 if (!obstacleMeshes[i].userData.seen) {
                     scene.remove(obstacleMeshes[i]);
@@ -358,6 +337,7 @@
             }
         }
 
+        // --- Controls ---
         function setupControls() {
             const btnLeft = document.getElementById('btn-left');
             const btnRight = document.getElementById('btn-right');
@@ -373,41 +353,50 @@
                 }
             };
 
-            const setInput = (val, btn) => {
+            const setInput = (val) => {
+                if (localInput === val) return; // Optimize
                 localInput = val;
-                // Visual Feedback
-                if(btn) btn.classList.add('active');
                 
-                // Network Send
+                // Visuals
+                if (val === -1) { btnLeft.classList.add('active'); btnRight.classList.remove('active'); }
+                else if (val === 1) { btnRight.classList.add('active'); btnLeft.classList.remove('active'); }
+                else { btnLeft.classList.remove('active'); btnRight.classList.remove('active'); }
+
+                // Network
                 if (connected) {
-                    Playroom.myPlayer().setState('input', val);
+                    const me = Playroom.myPlayer();
+                    if(me) me.setState('input', val);
                 }
             };
 
-            const clearInput = () => {
-                localInput = 0;
-                btnLeft.classList.remove('active');
-                btnRight.classList.remove('active');
-                if (connected) {
-                    Playroom.myPlayer().setState('input', 0);
-                }
-            };
-
+            // Touch
             const bind = (btn, val) => {
-                btn.addEventListener('pointerdown', (e) => { e.preventDefault(); setInput(val, btn); });
-                btn.addEventListener('pointerup', (e) => { e.preventDefault(); clearInput(); });
-                btn.addEventListener('pointerleave', (e) => { e.preventDefault(); clearInput(); });
+                btn.onpointerdown = (e) => { e.preventDefault(); setInput(val); };
+                btn.onpointerup = (e) => { e.preventDefault(); setInput(0); };
+                btn.onpointerleave = (e) => { e.preventDefault(); setInput(0); };
             };
-
             bind(btnLeft, -1);
             bind(btnRight, 1);
+
+            // Keyboard
+            window.addEventListener('keydown', (e) => {
+                if(e.repeat) return;
+                const k = e.key.toLowerCase();
+                if(k === 'arrowleft' || k === 'a') setInput(-1);
+                if(k === 'arrowright' || k === 'd') setInput(1);
+            });
+
+            window.addEventListener('keyup', (e) => {
+                const k = e.key.toLowerCase();
+                if(k === 'arrowleft' || k === 'a' || k === 'arrowright' || k === 'd') setInput(0);
+            });
         }
 
         function updateDebug(txt) {
             document.getElementById('debug-panel').innerText = txt;
         }
 
-        // --- Three.js Setup (Standard) ---
+        // --- Graphics ---
         function setupGraphics() {
             const container = document.getElementById('game-container');
             scene = new THREE.Scene();
