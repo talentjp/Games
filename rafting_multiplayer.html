@@ -131,14 +131,26 @@
         async function init() {
             // Setup 3D Scene immediately so something is always visible
             setupThreeJS();
+            setupControls();
+            
+            // Start Loop immediately (don't wait for connection)
+            requestAnimationFrame(animate);
             
             try {
-                // Initialize Playroom
-                await Playroom.insertCoin({
-                    skipLobby: false, 
-                    gameId: "river-rush-v2",
-                    discord: false
-                });
+                // Create a timeout promise to prevent hanging forever
+                const timeout = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error("Connection timeout")), 3000)
+                );
+
+                // Initialize Playroom with a race condition
+                await Promise.race([
+                    Playroom.insertCoin({
+                        skipLobby: false, 
+                        gameId: "river-rush-v2",
+                        discord: false
+                    }),
+                    timeout
+                ]);
 
                 isOnline = true;
                 isHost = Playroom.isHost();
@@ -148,25 +160,19 @@
                     await Playroom.setState('gameState', gameState);
                 }
                 
-                hideLoading();
-                
             } catch (err) {
-                console.warn("Playroom connection failed, switching to offline mode:", err);
+                console.warn("Playroom connection failed or timed out, switching to offline mode:", err);
                 startOfflineMode();
+            } finally {
+                // Always hide loading screen
+                hideLoading();
             }
-
-            // Setup Controls
-            setupControls();
-
-            // Start Loop
-            requestAnimationFrame(animate);
         }
 
         function startOfflineMode() {
             offlineMode = true;
             isHost = true; // Act as host locally
             document.getElementById('loading-text').innerText = "Offline Mode";
-            hideLoading();
         }
 
         function hideLoading() {
