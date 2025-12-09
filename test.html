@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>River Rush Co-op V6</title>
+    <title>River Rush Co-op V7</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; }
-        #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: monospace; user-select: none; -webkit-user-select: none; }
+        
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
         
-        .hud-top { padding: 20px; display: flex; justify-content: space-between; color: white; text-shadow: 2px 2px 0 #000; font-size: 24px; font-weight: bold; pointer-events: none; }
+        .hud-top { padding: 10px; color: white; text-shadow: 1px 1px 0 #000; font-size: 20px; font-weight: bold; pointer-events: none; }
         
         .controls { 
             pointer-events: auto; 
@@ -20,10 +20,10 @@
         }
 
         .btn {
-            width: 90px;
-            height: 90px;
+            width: 100px;
+            height: 100px;
             background: rgba(255, 255, 255, 0.2);
-            border: 3px solid white;
+            border: 4px solid white;
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -33,53 +33,33 @@
             cursor: pointer;
             touch-action: none;
         }
-        .btn.active { background: rgba(0, 255, 0, 0.5); transform: scale(0.95); border-color: #0f0; }
+        .btn:active, .btn.active { background: rgba(0, 255, 0, 0.6); transform: scale(0.95); border-color: #0f0; }
         
         #status-overlay {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            display: none;
-            pointer-events: auto;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; display: none; pointer-events: auto;
         }
-        #status-text { font-size: 50px; font-weight: 900; color: white; text-shadow: 3px 3px 0 #000; margin-bottom: 10px; }
+        #status-text { font-size: 40px; font-weight: 900; color: white; text-shadow: 2px 2px 0 #000; margin-bottom: 10px; }
+        
         #restart-btn {
-            background: #fff; color: #333; padding: 10px 20px; font-size: 20px; border-radius: 10px; border: none; cursor: pointer; font-weight: bold;
+            background: #fff; color: #333; padding: 15px 30px; font-size: 20px; border-radius: 10px; border: none; cursor: pointer; font-weight: bold;
         }
 
         #debug-panel {
-            position: absolute;
-            top: 60px;
-            left: 20px;
-            background: rgba(0,0,0,0.6);
-            color: #0f0;
-            font-family: monospace;
-            padding: 10px;
-            font-size: 13px;
-            border-radius: 5px;
-            pointer-events: none;
-            max-width: 350px;
-            white-space: pre-wrap;
-            z-index: 50;
+            position: absolute; top: 50px; left: 10px;
+            background: rgba(0,0,0,0.7); color: #0f0;
+            padding: 10px; font-size: 12px; border-radius: 4px;
+            pointer-events: none; white-space: pre;
         }
 
         #loading {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #2c3e50;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #2c3e50; color: white;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 100; font-size: 24px;
         }
-
-        .key-hint { font-size: 14px; color: rgba(255,255,255,0.7); display: block; margin-top: 5px; font-weight: normal; }
     </style>
-    <!-- Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -87,294 +67,319 @@
 </head>
 <body>
 
-    <div id="loading">Connecting to River...</div>
-
+    <div id="loading">Connecting...</div>
     <div id="game-container"></div>
 
     <div id="ui-layer">
         <div class="hud-top">
-            <div id="score">0m / 2000m</div>
-            <div id="player-count">P1</div>
+            <div id="score">0m</div>
+            <div id="role-indicator">Initializing...</div>
         </div>
         
-        <div id="debug-panel">Init...</div>
+        <div id="debug-panel">Waiting for network...</div>
 
         <div id="status-overlay">
             <div id="status-text">CRASHED!</div>
-            <button id="restart-btn">Restart Game</button>
+            <button id="restart-btn">Restart</button>
         </div>
 
         <div class="controls">
-            <div class="btn" id="btn-left">◀ <span class="key-hint">(A)</span></div>
-            <div class="btn" id="btn-right">▶ <span class="key-hint">(D)</span></div>
+            <div class="btn" id="btn-left">◀</div>
+            <div class="btn" id="btn-right">▶</div>
         </div>
     </div>
 
     <script>
-        // --- Config ---
+        // --- Configuration ---
         const CONFIG = {
             width: 40,
             length: 2000,
             speed: 0.6,
-            steerForce: 0.5 
+            steerForce: 0.8
         };
 
-        // --- State ---
+        // --- Network Globals ---
+        let isHost = false;
+        let myPlayer = null;
+        let connected = false;
+        let activePlayers = []; // Local cache of player objects
+
+        // --- Game Globals ---
         let game = {
             raftX: 0,
             distance: 0,
             status: 'playing',
-            obstacles: [] 
+            obstacles: []
         };
+        let localInput = 0;
+        let inputInterval = null;
 
-        // --- Globals ---
+        // --- Three.js Globals ---
         let scene, camera, renderer;
-        let raftMesh, waterMesh;
+        let raftGroup, waterMesh;
+        let paddles = {}; // Map of playerID -> Mesh
         let obstacleMeshes = [];
-        
-        let isHost = false;
-        let myId = null;
-        let localInput = 0; // -1, 0, 1
-        let connected = false;
 
-        // --- Entry ---
+        // =========================================
+        // INITIALIZATION
+        // =========================================
         window.onload = async () => {
-            setupGraphics();
-            setupControls();
-            
-            requestAnimationFrame(renderLoop);
+            initGraphics();
+            initControls();
+            requestAnimationFrame(render);
 
             try {
-                // Connect
                 await Playroom.insertCoin({ 
                     skipLobby: false, 
-                    gameId: "river-rush-v6",
+                    gameId: "river-rush-v7", 
                     discord: false 
                 });
                 
                 connected = true;
                 isHost = Playroom.isHost();
-                const me = Playroom.myPlayer();
-                myId = me.id;
+                myPlayer = Playroom.myPlayer();
 
-                // Force init my input state
-                me.setState('input', 0);
+                // INIT STATE IMMEDIATELY
+                if(myPlayer) {
+                    await myPlayer.setState('dir', 0);
+                }
 
-                // Listen for others (Optional, but good for debug)
+                // If Host, setup listeners
                 Playroom.onPlayerJoin((player) => {
-                    console.log("Player joined:", player.id);
-                    player.setState('input', 0); // Init them just in case
+                    console.log("Player Joined:", player.id);
+                    player.setState('dir', 0); // Force init state
+                    activePlayers.push(player);
+                    createPaddle(player);
                 });
 
-                document.getElementById('loading').style.display = 'none';
+                // Handle quits
+                Playroom.onPlayerQuit((player) => {
+                    activePlayers = activePlayers.filter(p => p.id !== player.id);
+                    removePaddle(player.id);
+                });
 
-                if(isHost) {
+                // Populate initial players
+                activePlayers = Playroom.getPlayers();
+                activePlayers.forEach(p => createPaddle(p));
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('role-indicator').innerText = isHost ? "HOST" : "CLIENT";
+
+                if (isHost) {
                     Playroom.setState('game', game);
                 }
 
-            } catch(e) {
-                console.error(e);
+            } catch (err) {
+                console.error("Init Error", err);
                 document.getElementById('loading').innerText = "Offline Mode";
                 setTimeout(() => document.getElementById('loading').style.display = 'none', 1000);
-                connected = false;
-                isHost = true;
+                isHost = true; // Fallback
             }
         };
 
-        // --- Game Logic ---
+        // =========================================
+        // GAME LOGIC
+        // =========================================
 
-        function updateHostLogic() {
+        function updateHost() {
             if (game.status !== 'playing') return;
 
-            // 1. Gather Inputs
-            let players = [];
-            try {
-                players = Playroom.getPlayers();
-            } catch(e) { players = []; }
-
             let totalSteer = 0;
-            let debugStr = "";
+            let debugText = "PLAYERS:\n";
 
-            if (connected && players.length > 0) {
-                players.forEach((p, index) => {
-                    // Critical: Get state with fallback
-                    const dir = p.getState('input');
-                    // Check explicitly for undefined/null
-                    const val = (dir !== undefined && dir !== null) ? parseFloat(dir) : 0;
-                    
-                    totalSteer += val;
-                    
-                    // Visual Debug for Host
-                    const icon = val > 0 ? '▶' : (val < 0 ? '◀' : '•');
-                    // Shorten ID for display
-                    const pid = p.id.substring(0,4);
-                    debugStr += `[${pid}]:${icon} `;
-                });
-            } else {
-                totalSteer = localInput;
-                debugStr = `Solo: ${localInput}`;
-            }
+            // Aggregate Input
+            activePlayers.forEach(p => {
+                const dir = p.getState('dir') || 0;
+                totalSteer += dir;
+                
+                // Visual update for paddles
+                updatePaddleVisual(p.id, dir);
+                debugText += `${p.id.substr(0,4)}: ${dir}\n`;
+            });
 
-            // 2. Physics
+            // Physics
             game.raftX -= totalSteer * CONFIG.steerForce;
-            
-            // Clamp
-            const limit = CONFIG.width / 2 - 2;
-            game.raftX = Math.max(-limit, Math.min(limit, game.raftX));
-
-            // Move
+            game.raftX = Math.max(-18, Math.min(18, game.raftX));
             game.distance += CONFIG.speed;
 
-            // Spawning
-            if (game.distance > 100 && Math.random() < 0.02) {
+            // Obstacles
+            if (game.distance > 100 && Math.random() < 0.03) {
                 const type = Math.random() > 0.5 ? 'rock' : 'log';
-                const x = (Math.random() * (CONFIG.width - 6)) - (CONFIG.width/2 - 3);
-                game.obstacles.push({
-                    id: Date.now() + Math.random(),
-                    type: type,
-                    x: x,
-                    z: 80
-                });
+                const x = (Math.random() * 30) - 15;
+                game.obstacles.push({ id: Date.now() + Math.random(), type, x, z: 80 });
             }
 
-            // Move Obstacles
             game.obstacles.forEach(o => o.z -= CONFIG.speed);
-            game.obstacles = game.obstacles.filter(o => o.z > -20); 
+            game.obstacles = game.obstacles.filter(o => o.z > -20);
 
             // Collision
             for (let o of game.obstacles) {
                 const dx = o.x - game.raftX;
                 const dz = o.z; 
-                const hitDist = 2.5; 
-                if (Math.sqrt(dx*dx + dz*dz) < hitDist) {
+                if (Math.sqrt(dx*dx + dz*dz) < 2.5) {
                     game.status = 'gameover';
                     break;
                 }
             }
-
             if (game.distance >= CONFIG.length) game.status = 'won';
 
-            // 3. Network Sync
-            if (connected) {
-                Playroom.setState('game', { ...game }); 
-            }
+            // Sync
+            if (connected) Playroom.setState('game', { ...game });
 
-            updateDebug(`HOST MODE\nForce: ${totalSteer.toFixed(1)}\n${debugStr}`);
+            document.getElementById('debug-panel').innerText = debugText;
         }
 
-        function updateClientLogic() {
+        function updateClient() {
             if (!connected) return;
-
-            // Send my input (Redundant check to ensure we are spamming state updates if needed)
-            const me = Playroom.myPlayer();
-            if (me) {
-                 // We don't need to setState every frame, but let's check debug
-                 // debugStr comes from localInput
-            }
 
             const serverState = Playroom.getState('game');
             if (serverState) {
-                // Interpolate
                 game.raftX = THREE.MathUtils.lerp(game.raftX, serverState.raftX || 0, 0.2);
                 game.distance = serverState.distance || 0;
                 game.status = serverState.status || 'playing';
                 game.obstacles = serverState.obstacles || [];
-                
-                updateDebug(`CLIENT MODE\nMy ID: ${myId ? myId.substring(0,4) : '...'}\nMy Input: ${localInput}\nServer Pos: ${game.raftX.toFixed(1)}`);
-            } else {
-                updateDebug(`CLIENT\nWaiting for Host Data...`);
             }
+            
+            // Still update paddles visually based on peer states
+            let debugText = "PEERS:\n";
+            activePlayers = Playroom.getPlayers(); // Refresh list
+            activePlayers.forEach(p => {
+                const dir = p.getState('dir') || 0;
+                updatePaddleVisual(p.id, dir);
+                debugText += `${p.id.substr(0,4)}: ${dir}\n`;
+            });
+            document.getElementById('debug-panel').innerText = debugText;
         }
 
-        // --- Render Loop ---
-        function renderLoop() {
-            requestAnimationFrame(renderLoop);
+        // =========================================
+        // GRAPHICS & RENDER
+        // =========================================
 
-            if (isHost) {
-                updateHostLogic();
-            } else {
-                updateClientLogic();
+        function render() {
+            requestAnimationFrame(render);
+
+            if (isHost) updateHost();
+            else updateClient();
+
+            // 1. Move Raft
+            if (raftGroup) {
+                raftGroup.position.x = game.raftX;
+                raftGroup.position.y = Math.sin(Date.now() * 0.003) * 0.2;
+                raftGroup.rotation.z = -game.raftX * 0.01;
             }
 
-            // Visuals
-            if (raftMesh) {
-                raftMesh.position.x = game.raftX;
-                raftMesh.position.y = Math.sin(Date.now() * 0.003) * 0.2;
-                raftMesh.rotation.z = -game.raftX * 0.01; 
-            }
+            // 2. Sync Obstacles
+            syncObstacles();
 
-            syncObstacleMeshes();
-
+            // 3. Water
             if (waterMesh) {
                 const pos = waterMesh.geometry.attributes.position;
-                const time = Date.now() * 0.003;
-                for(let i=0; i<pos.count; i++){
+                const t = Date.now() * 0.003;
+                for(let i=0; i<pos.count; i++) {
                     const x = pos.getX(i);
-                    const y = pos.getY(i); 
-                    const flow = y - (time * 8); 
-                    const z = Math.sin(x*0.4 + time)*0.2 + Math.sin(flow*0.3)*0.4;
-                    pos.setZ(i, z);
+                    const y = pos.getY(i);
+                    const flow = y - (t * 8);
+                    pos.setZ(i, Math.sin(x*0.4+t)*0.2 + Math.sin(flow*0.3)*0.4);
                 }
                 pos.needsUpdate = true;
             }
 
-            // UI
-            document.getElementById('score').innerText = `${Math.floor(game.distance)}m / ${CONFIG.length}m`;
-            
+            // 4. UI
+            document.getElementById('score').innerText = Math.floor(game.distance) + "m";
             const overlay = document.getElementById('status-overlay');
-            const restartBtn = document.getElementById('restart-btn');
-
             if (game.status !== 'playing') {
                 overlay.style.display = 'block';
-                document.getElementById('status-text').innerText = game.status === 'won' ? "VICTORY!" : "CRASHED!";
-                document.getElementById('status-text').style.color = game.status === 'won' ? '#4eff4e' : '#ff4444';
-                restartBtn.style.display = isHost ? 'inline-block' : 'none';
+                document.getElementById('status-text').innerText = game.status === 'won' ? "VICTORY" : "CRASHED";
+                document.getElementById('restart-btn').style.display = isHost ? 'block' : 'none';
             } else {
                 overlay.style.display = 'none';
             }
-            
+
             renderer.render(scene, camera);
         }
 
-        function syncObstacleMeshes() {
+        function syncObstacles() {
             obstacleMeshes.forEach(m => m.userData.seen = false);
-            game.obstacles.forEach(data => {
-                let mesh = obstacleMeshes.find(m => m.userData.id === data.id);
+            game.obstacles.forEach(d => {
+                let mesh = obstacleMeshes.find(m => m.userData.id === d.id);
                 if (!mesh) {
-                    mesh = createObstacleMesh(data.type);
-                    mesh.userData.id = data.id;
-                    mesh.position.x = data.x;
+                    const geo = d.type === 'rock' ? new THREE.DodecahedronGeometry(1.5) : new THREE.CylinderGeometry(0.5,0.5,4);
+                    const mat = new THREE.MeshLambertMaterial({ color: d.type === 'rock' ? 0x888888 : 0x5c4033 });
+                    mesh = new THREE.Mesh(geo, mat);
+                    if (d.type !== 'rock') mesh.rotation.set(Math.PI/2, Math.random(), 0);
+                    mesh.position.y = 0.5;
+                    mesh.userData.id = d.id;
+                    mesh.position.x = d.x;
+                    mesh.castShadow = true;
                     scene.add(mesh);
                     obstacleMeshes.push(mesh);
                 }
-                mesh.position.z = data.z;
+                mesh.position.z = d.z;
                 mesh.userData.seen = true;
             });
-            for (let i = obstacleMeshes.length - 1; i >= 0; i--) {
+            for (let i = obstacleMeshes.length-1; i>=0; i--) {
                 if (!obstacleMeshes[i].userData.seen) {
                     scene.remove(obstacleMeshes[i]);
-                    obstacleMeshes.splice(i, 1);
+                    obstacleMeshes.splice(i,1);
                 }
             }
         }
 
-        // --- Controls ---
-        function setupControls() {
+        function createPaddle(player) {
+            if (paddles[player.id]) return;
+
+            // Visual representation of a player (a small box on the raft)
+            const geo = new THREE.BoxGeometry(1, 4, 0.2);
+            const mat = new THREE.MeshLambertMaterial({ color: player.getProfile().color.hex || 0xffffff });
+            const mesh = new THREE.Mesh(geo, mat);
+            
+            // Random position on raft
+            const offset = (Object.keys(paddles).length - 1) * 1.5; 
+            mesh.position.set(0, 2, 0); // Relative to raft group
+            
+            paddles[player.id] = mesh;
+            raftGroup.add(mesh);
+        }
+
+        function removePaddle(id) {
+            if (paddles[id]) {
+                raftGroup.remove(paddles[id]);
+                delete paddles[id];
+            }
+        }
+
+        function updatePaddleVisual(id, dir) {
+            const mesh = paddles[id];
+            if (!mesh) return;
+
+            // Animate paddle based on input
+            if (dir !== 0) {
+                // Paddling animation
+                mesh.rotation.z = Math.sin(Date.now() * 0.01) * 0.5 * dir;
+                mesh.position.x = dir * 1.5; // Move to side of boat
+            } else {
+                mesh.rotation.z = 0;
+                mesh.position.x = 0; // Center
+            }
+        }
+
+        // =========================================
+        // INPUT HANDLER
+        // =========================================
+
+        function initControls() {
             const btnLeft = document.getElementById('btn-left');
             const btnRight = document.getElementById('btn-right');
             const restartBtn = document.getElementById('restart-btn');
 
             restartBtn.onclick = () => {
                 if(isHost) {
-                    game.status = 'playing';
-                    game.distance = 0;
-                    game.raftX = 0;
-                    game.obstacles = [];
+                    game.status = 'playing'; game.distance = 0; game.raftX = 0; game.obstacles = [];
                     Playroom.setState('game', game);
                 }
             };
 
-            const setInput = (val) => {
+            const sendInput = (val) => {
                 localInput = val;
                 
                 // Visuals
@@ -383,52 +388,58 @@
                 else { btnLeft.classList.remove('active'); btnRight.classList.remove('active'); }
 
                 // Network
-                if (connected) {
-                    const me = Playroom.myPlayer();
-                    if(me) {
-                        me.setState('input', val);
-                        // Optional: Log sending
-                        // console.log("Sent input", val);
-                    }
+                if (connected && myPlayer) {
+                    myPlayer.setState('dir', val);
                 }
             };
 
-            // Touch
+            // Start repeating input to ensure it sticks
+            const startInput = (val) => {
+                if (inputInterval) clearInterval(inputInterval);
+                sendInput(val);
+                // Re-send every 100ms to combat packet loss/sync issues
+                if (val !== 0) {
+                    inputInterval = setInterval(() => sendInput(val), 100);
+                }
+            };
+
+            const stopInput = () => {
+                if (inputInterval) clearInterval(inputInterval);
+                sendInput(0);
+            };
+
+            // Bindings
             const bind = (btn, val) => {
-                btn.onpointerdown = (e) => { e.preventDefault(); setInput(val); };
-                btn.onpointerup = (e) => { e.preventDefault(); setInput(0); };
-                btn.onpointerleave = (e) => { e.preventDefault(); setInput(0); };
+                btn.onpointerdown = (e) => { e.preventDefault(); startInput(val); };
+                btn.onpointerup = (e) => { e.preventDefault(); stopInput(); };
+                btn.onpointerleave = (e) => { e.preventDefault(); stopInput(); };
             };
             bind(btnLeft, -1);
             bind(btnRight, 1);
 
-            // Keyboard
             window.addEventListener('keydown', (e) => {
                 if(e.repeat) return;
                 const k = e.key.toLowerCase();
-                if(k === 'arrowleft' || k === 'a') setInput(-1);
-                if(k === 'arrowright' || k === 'd') setInput(1);
+                if(k==='a' || k==='arrowleft') startInput(-1);
+                if(k==='d' || k==='arrowright') startInput(1);
             });
-
             window.addEventListener('keyup', (e) => {
                 const k = e.key.toLowerCase();
-                if(k === 'arrowleft' || k === 'a' || k === 'arrowright' || k === 'd') setInput(0);
+                if(['a','d','arrowleft','arrowright'].includes(k)) stopInput();
             });
         }
 
-        function updateDebug(txt) {
-            document.getElementById('debug-panel').innerText = txt;
-        }
-
-        // --- Graphics ---
-        function setupGraphics() {
+        // =========================================
+        // THREE JS INIT
+        // =========================================
+        function initGraphics() {
             const container = document.getElementById('game-container');
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
             scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 200);
-            camera.position.set(0, 16, -18);
+            camera.position.set(0, 18, -20);
             camera.lookAt(0,0,10);
 
             renderer = new THREE.WebGLRenderer({antialias: true});
@@ -436,17 +447,16 @@
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             const dl = new THREE.DirectionalLight(0xffffff, 0.8);
             dl.position.set(50, 100, -50);
             dl.castShadow = true;
             scene.add(dl);
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
             // Water
             const wGeo = new THREE.PlaneGeometry(120, 200, 40, 40);
             wGeo.rotateX(-Math.PI/2);
-            const wMat = new THREE.MeshPhongMaterial({color: 0x0099ff, shininess: 80, flatShading: true});
-            waterMesh = new THREE.Mesh(wGeo, wMat);
+            waterMesh = new THREE.Mesh(wGeo, new THREE.MeshPhongMaterial({color: 0x0099ff, shininess: 80, flatShading: true}));
             scene.add(waterMesh);
 
             // Banks
@@ -455,45 +465,26 @@
             const b1 = new THREE.Mesh(bGeo, bMat); b1.position.set(-30, -2, 0); scene.add(b1);
             const b2 = new THREE.Mesh(bGeo, bMat); b2.position.set(30, -2, 0); scene.add(b2);
 
-            // Raft
-            raftMesh = new THREE.Group();
+            // Raft Container
+            raftGroup = new THREE.Group();
+            scene.add(raftGroup);
+
+            // Raft Base
             const logGeo = new THREE.CylinderGeometry(0.6, 0.6, 6, 8);
             const logMat = new THREE.MeshLambertMaterial({color: 0x8B4513});
             for(let i=0; i<5; i++){
                 const l = new THREE.Mesh(logGeo, logMat);
                 l.rotation.set(Math.PI/2, 0, Math.PI/2);
                 l.position.x = (i-2)*1.2;
-                raftMesh.add(l);
+                raftGroup.add(l);
             }
-            const sail = new THREE.Mesh(new THREE.PlaneGeometry(2,1.5), new THREE.MeshBasicMaterial({color:0xffffff, side:THREE.DoubleSide}));
-            sail.position.set(0, 3, 0);
-            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,4), logMat);
-            mast.position.y=2;
-            raftMesh.add(mast);
-            raftMesh.add(sail);
-            scene.add(raftMesh);
-
-            window.addEventListener('resize', () => {
+            
+            window.onresize = () => {
                 camera.aspect = window.innerWidth/window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
-            });
+            };
         }
-
-        function createObstacleMesh(type) {
-            let m;
-            if (type === 'rock') {
-                m = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5), new THREE.MeshLambertMaterial({color:0x808080}));
-                m.position.y = 0.5;
-            } else {
-                m = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,4), new THREE.MeshLambertMaterial({color:0x5c4033}));
-                m.rotation.z = Math.PI/2;
-                m.rotation.y = Math.random();
-            }
-            m.castShadow = true;
-            return m;
-        }
-
     </script>
 </body>
 </html>
