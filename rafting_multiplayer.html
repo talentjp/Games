@@ -59,6 +59,7 @@
             align-items: center;
             justify-content: center;
             z-index: 100;
+            transition: opacity 0.5s;
         }
         .spinner {
             width: 40px; height: 40px;
@@ -113,6 +114,7 @@
         let raft, water;
         let obstacles = [];
         let isHost = false;
+        let gameStarted = false;
         
         // Game State (Synced)
         let gameState = {
@@ -129,7 +131,6 @@
         async function init() {
             try {
                 // Initialize Playroom WITH LOBBY
-                // skipLobby: false enables the invite screen
                 await Playroom.insertCoin({
                     skipLobby: false, 
                     gameId: "river-rush-lobby-v1",
@@ -141,22 +142,39 @@
                 // Setup 3D Scene
                 setupThreeJS();
                 
-                // Hide loading screen once the host starts the game
-                document.getElementById('loading').style.display = 'none';
+                // FORCE INITIAL STATE IF HOST
+                // This ensures clients have something to read immediately
+                if (isHost) {
+                    await Playroom.setState('gameState', gameState);
+                }
+                
+                // Hide loading screen
+                const loadingScreen = document.getElementById('loading');
+                loadingScreen.style.opacity = '0';
+                setTimeout(() => loadingScreen.style.display = 'none', 500);
 
                 // Setup Controls
                 setupControls();
 
                 // Start Game Loop
+                gameStarted = true;
                 requestAnimationFrame(animate);
 
             } catch (err) {
                 console.error("Playroom Init Error:", err);
                 document.getElementById('loading-text').innerHTML = "Error connecting.<br>Please refresh.";
+                // Failsafe: Hide loading anyway so they can maybe play solo or see debug
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                    if (!scene) setupThreeJS();
+                    requestAnimationFrame(animate);
+                }, 2000);
             }
         }
 
         function setupThreeJS() {
+            if (scene) return; // Prevent double init
+
             const container = document.getElementById('game-container');
             
             scene = new THREE.Scene();
@@ -164,10 +182,11 @@
             scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
-            camera.position.set(0, 12, -15);
+            // Adjusted camera for better visibility
+            camera.position.set(0, 15, -18); 
             camera.lookAt(0, 0, 10);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
@@ -370,7 +389,9 @@
             const serverState = Playroom.getState('gameState');
             if (serverState) {
                 // Lerp Raft
-                raft.position.x = THREE.MathUtils.lerp(raft.position.x, serverState.raftX, 0.1);
+                if(serverState.raftX !== undefined) {
+                     raft.position.x = THREE.MathUtils.lerp(raft.position.x, serverState.raftX, 0.1);
+                }
                 
                 // Tilt
                 const tilt = totalSteer * -0.05;
@@ -382,16 +403,18 @@
                 // Sync Visual Obstacles
                 obstacles.forEach(o => o.userData.seen = false);
 
-                serverState.obstacles.forEach(data => {
-                    let mesh = obstacles.find(o => o.userData.id === data.id);
-                    if (!mesh) {
-                        mesh = createObstacle(data.type, data.x, data.z);
-                        mesh.userData.id = data.id;
-                        obstacles.push(mesh);
-                    }
-                    mesh.position.z = data.z;
-                    mesh.userData.seen = true;
-                });
+                if (serverState.obstacles) {
+                    serverState.obstacles.forEach(data => {
+                        let mesh = obstacles.find(o => o.userData.id === data.id);
+                        if (!mesh) {
+                            mesh = createObstacle(data.type, data.x, data.z);
+                            mesh.userData.id = data.id;
+                            obstacles.push(mesh);
+                        }
+                        mesh.position.z = data.z;
+                        mesh.userData.seen = true;
+                    });
+                }
 
                 for (let i = obstacles.length - 1; i >= 0; i--) {
                     if (!obstacles[i].userData.seen) {
@@ -415,6 +438,9 @@
                 } else {
                     statusEl.style.display = 'none';
                 }
+            } else {
+                // Fallback rendering even if no state yet
+                raft.position.y = Math.sin(Date.now() * 0.003) * 0.2;
             }
 
             // Animate Water
@@ -456,7 +482,14 @@
                 setTimeout(() => {
                     if (typeof Playroom === 'undefined') {
                         clearInterval(checkInterval);
-                        document.getElementById('loading-text').innerHTML = "Failed to load Multiplayer SDK.<br>Check internet or AdBlock.";
+                        // Force init anyway to show *something* even if networking fails
+                        console.warn("Playroom load timeout. Starting in offline mode.");
+                        document.getElementById('loading-text').innerHTML = "Multiplayer failed.<br>Starting Offline.";
+                        setTimeout(() => {
+                             document.getElementById('loading').style.display = 'none';
+                             setupThreeJS();
+                             requestAnimationFrame(animate);
+                        }, 1000);
                     }
                 }, 5000);
             }
