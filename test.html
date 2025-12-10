@@ -242,8 +242,7 @@
             
             // Still update paddles visually based on peer states
             let debugText = "PEERS:\n";
-            activePlayers = Playroom.getPlayers(); // Refresh list
-            activePlayers.forEach(p => {
+            Playroom.getPlayers().forEach(p => {
                 const dir = p.getState('dir') || 0;
                 updatePaddleVisual(p.id, dir);
                 debugText += `${p.id.substr(0,4)}: ${dir}\n`;
