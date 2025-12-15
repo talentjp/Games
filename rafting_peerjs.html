@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Multiplayer Rafting - Additive Chaos</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Bangers&family=Roboto:wght@400;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #2c3e50;
+            font-family: 'Roboto', sans-serif;
+            color: white;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        #menu-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+        }
+
+        h1 {
+            font-family: 'Bangers', cursive;
+            font-size: 4rem;
+            color: #f1c40f;
+            text-shadow: 4px 4px 0px #d35400;
+            margin: 0 0 20px 0;
+            text-align: center;
+            line-height: 1;
+        }
+
+        .panel {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2rem;
+            border-radius: 15px;
+            text-align: center;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            max-width: 90%;
+            width: 400px;
+        }
+
+        input[type="text"] {
+            padding: 12px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            border: none;
+            width: 70%;
+            margin-bottom: 10px;
+            text-align: center;
+            font-family: monospace;
+            text-transform: uppercase;
+        }
+
+        button {
+            background: #e67e22;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+            margin: 5px;
+            font-family: 'Bangers', cursive;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: #d35400;
+            transform: scale(1.05);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .hidden { display: none !important; }
+
+        #game-ui {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .stat-box {
+            background: rgba(0,0,0,0.5);
+            padding: 10px 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-label { font-size: 0.8rem; opacity: 0.8; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; font-family: 'Bangers', cursive; color: #f1c40f; }
+
+        #controls-overlay {
+            width: 100%;
+            height: 150px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            box-sizing: border-box;
+            pointer-events: auto; /* Enable clicks */
+        }
+
+        .touch-btn {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            transition: background 0.1s;
+            user-select: none;
+        }
+        
+        .touch-btn:active, .touch-btn.active {
+            background: rgba(255, 255, 255, 0.6);
+            transform: scale(0.95);
+        }
+
+        #input-visualization {
+            position: absolute;
+            bottom: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 20px;
+        }
+
+        .player-arrow {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #95a5a6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .player-arrow.left { background: #e74c3c; transform: rotate(-45deg); }
+        .player-arrow.right { background: #2ecc71; transform: rotate(45deg); }
+        .player-arrow.center { background: #f1c40f; }
+
+        #status-msg {
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #bdc3c7;
+            min-height: 1.2em;
+        }
+
+        #copy-feedback {
+            color: #2ecc71;
+            font-size: 0.8rem;
+            margin-top: 5px;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            h1 { font-size: 3rem; }
+            .panel { width: 90%; padding: 1rem; }
+            #controls-overlay { padding-bottom: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- THREE.JS CONTAINER -->
+    <div id="canvas-container"></div>
+
+    <!-- UI LAYER -->
+    <div id="ui-layer">
+        
+        <!-- Top HUD -->
+        <div id="game-ui" class="hidden">
+            <div class="stat-box">
+                <div class="stat-label">DISTANCE</div>
+                <div class="stat-value" id="score-display">0m</div>
+            </div>
+            
+            <div id="input-visualization">
+                <!-- Will be populated by JS -->
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">CREW</div>
+                <div class="stat-value" id="player-count">1/4</div>
+            </div>
+        </div>
+
+        <!-- Touch Controls -->
+        <div id="controls-overlay" class="hidden">
+            <div class="touch-btn" id="btn-left">◀</div>
+            <div class="touch-btn" id="btn-right">▶</div>
+        </div>
+
+        <!-- Menu Screen -->
+        <div id="menu-screen">
+            <h1>RIVER RUSH</h1>
+            
+            <!-- Main Menu -->
+            <div id="main-menu" class="panel">
+                <p>Avoid rocks! Controls are additive.<br>Work together to steer the raft.</p>
+                <button id="btn-host-menu">Host Game</button>
+                <div style="height: 10px;"></div>
+                <button id="btn-join-menu">Join Game</button>
+            </div>
+
+            <!-- Host Panel -->
+            <div id="host-panel" class="panel hidden">
+                <h2>Host Game</h2>
+                <p>Share this ID with your crew:</p>
+                <div style="display:flex; justify-content:center; align-items:center; gap:5px;">
+                    <input type="text" id="host-id-display" readonly value="..." onclick="copyId()">
+                    <button style="padding: 10px;" onclick="copyId()">📋</button>
+                </div>
+                <div id="copy-feedback">Copied to clipboard!</div>
+                <p id="waiting-msg">Waiting for players...</p>
+                <button id="btn-start" disabled>Start Game</button>
+                <button onclick="showPanel('main-menu')" style="background:transparent; border:1px solid #7f8c8d; margin-top:10px;">Back</button>
+            </div>
+
+            <!-- Join Panel -->
+            <div id="join-panel" class="panel hidden">
+                <h2>Join Game</h2>
+                <input type="text" id="join-id-input" placeholder="Enter Host ID">
+                <button id="btn-connect">Connect</button>
+                <button onclick="showPanel('main-menu')" style="background:transparent; border:1px solid #7f8c8d; margin-top:10px;">Back</button>
+            </div>
+
+            <!-- Game Over -->
+            <div id="game-over-panel" class="panel hidden">
+                <h2 style="color: #e74c3c">CRASHED!</h2>
+                <div class="stat-label">FINAL DISTANCE</div>
+                <div class="stat-value" id="final-score" style="font-size: 3rem; margin-bottom: 20px;">0m</div>
+                <button onclick="location.reload()">Return to Menu</button>
+            </div>
+
+            <div id="status-msg"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIG ---
+        const PLAYER_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f]; // Red, Blue, Green, Yellow
+        const RIVER_WIDTH = 30;
+        const RAFT_SPEED_LATERAL = 0.25; 
+        const GAME_SPEED_BASE = 0.4;
+        const OBSTACLE_SPAWN_RATE = 40; // Frames
+
+        // --- GLOBALS ---
+        let scene, camera, renderer;
+        let raft, water, obstacles = [];
+        let particles = [];
+        let peer, conn;
+        let connections = []; // For Host: list of data connections
+        let isHost = false;
+        let myId = null;
+        let hostId = null;
+        let gameActive = false;
+        let frameCount = 0;
+        let score = 0;
+        let myInput = 0; // -1, 0, 1
+        
+        // Input state from all players (Host only)
+        // Map: peerId -> input val (-1,0,1)
+        let playerInputs = new Map(); 
+        
+        // Game State (Synced)
+        let gameState = {
+            raftX: 0,
+            obstacles: [], // {x, z, type}
+            score: 0,
+            playerCount: 1,
+            inputs: [0,0,0,0], // For viz
+            crashed: false
+        };
+
+        // --- DOM ELEMENTS ---
+        const uiStats = document.getElementById('game-ui');
+        const uiControls = document.getElementById('controls-overlay');
+        const uiMenu = document.getElementById('menu-screen');
+        const statusMsg = document.getElementById('status-msg');
+        const vizContainer = document.getElementById('input-visualization');
+        const btnStart = document.getElementById('btn-start');
+
+        // --- THREE.JS SETUP ---
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xa0d8ef); // Sky blueish
+            scene.fog = new THREE.Fog(0xa0d8ef, 10, 60);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 12, 15);
+            camera.lookAt(0, 0, -5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            dirLight.position.set(10, 20, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.left = -20;
+            dirLight.shadow.camera.right = 20;
+            scene.add(dirLight);
+
+            // Water
+            const waterGeo = new THREE.PlaneGeometry(RIVER_WIDTH, 100);
+            const waterMat = new THREE.MeshPhongMaterial({ 
+                color: 0x3498db, 
+                shininess: 80,
+                flatShading: true
+            });
+            water = new THREE.Mesh(waterGeo, waterMat);
+            water.rotation.x = -Math.PI / 2;
+            water.receiveShadow = true;
+            scene.add(water);
+
+            // Banks
+            const bankGeo = new THREE.BoxGeometry(10, 5, 100);
+            const bankMat = new THREE.MeshLambertMaterial({ color: 0x27ae60 });
+            
+            const leftBank = new THREE.Mesh(bankGeo, bankMat);
+            leftBank.position.set(-(RIVER_WIDTH/2 + 5), 1, 0);
+            scene.add(leftBank);
+
+            const rightBank = new THREE.Mesh(bankGeo, bankMat);
+            rightBank.position.set((RIVER_WIDTH/2 + 5), 1, 0);
+            scene.add(rightBank);
+
+            // Raft
+            raft = new THREE.Group();
+            
+            // Logs
+            const logGeo = new THREE.CylinderGeometry(0.4, 0.4, 4, 8);
+            const logMat = new THREE.MeshLambertMaterial({ color: 0x8e44ad }); // Wood color
+            const woodMat = new THREE.MeshLambertMaterial({ color: 0xA0522D }); 
+
+            for(let i=0; i<4; i++) {
+                const log = new THREE.Mesh(logGeo, woodMat);
+                log.rotation.x = Math.PI / 2;
+                log.position.x = (i - 1.5) * 0.85;
+                log.castShadow = true;
+                raft.add(log);
+            }
+            
+            // Flag/Mast
+            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3), new THREE.MeshLambertMaterial({color: 0x555555}));
+            mast.position.y = 1.5;
+            raft.add(mast);
+            const sail = new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 0.1), new THREE.MeshLambertMaterial({color: 0xffffff}));
+            sail.position.set(0, 2, 0.2);
+            raft.add(sail);
+
+            scene.add(raft);
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- GAME LOGIC ---
+
+        function startGame() {
+            gameActive = true;
+            gameState.crashed = false;
+            gameState.score = 0;
+            gameState.raftX = 0;
+            gameState.obstacles = [];
+            obstacles.forEach(o => scene.remove(o.mesh));
+            obstacles = [];
+            
+            uiMenu.classList.add('hidden');
+            uiStats.classList.remove('hidden');
+            uiControls.classList.remove('hidden');
+            
+            updateInputViz(1); // Reset viz
+        }
+
+        function spawnObstacle() {
+            const type = Math.random() > 0.5 ? 'rock' : 'log';
+            const xPos = (Math.random() * (RIVER_WIDTH - 6)) - (RIVER_WIDTH/2 - 3);
+            
+            const obsData = {
+                id: Math.random().toString(36).substr(2, 9),
+                x: xPos,
+                z: -50, // Spawn ahead
+                type: type,
+                active: true
+            };
+            
+            gameState.obstacles.push(obsData);
+        }
+
+        function createObstacleMesh(data) {
+            let mesh;
+            if(data.type === 'rock') {
+                mesh = new THREE.Mesh(
+                    new THREE.DodecahedronGeometry(Math.random() * 0.5 + 1),
+                    new THREE.MeshLambertMaterial({ color: 0x7f8c8d })
+                );
+                mesh.position.y = 0.5;
+            } else {
+                mesh = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.3, 0.3, 4, 8),
+                    new THREE.MeshLambertMaterial({ color: 0x5d4037 })
+                );
+                mesh.rotation.z = Math.PI / 2;
+                mesh.position.y = 0.2;
+            }
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return { mesh: mesh, id: data.id };
+        }
+
+        // --- MAIN LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!gameActive) {
+                // Idle floating animation
+                if (raft) {
+                    raft.position.y = Math.sin(Date.now() * 0.002) * 0.2;
+                    raft.rotation.z = Math.sin(Date.now() * 0.001) * 0.05;
+                }
+                renderer.render(scene, camera);
+                return;
+            }
+
+            // --- HOST LOGIC ---
+            if (isHost) {
+                frameCount++;
+
+                // 1. Calculate Total Input force
+                let totalInput = myInput;
+                if (playerInputs.size > 0) {
+                    playerInputs.forEach(val => totalInput += val);
+                }
+
+                // 2. Move Raft
+                gameState.raftX += totalInput * RAFT_SPEED_LATERAL;
+                
+                // Clamp to river banks
+                const boundary = (RIVER_WIDTH/2) - 2.5;
+                if(gameState.raftX > boundary) gameState.raftX = boundary;
+                if(gameState.raftX < -boundary) gameState.raftX = -boundary;
+
+                // 3. Move Obstacles & Spawning
+                const gameSpeed = GAME_SPEED_BASE + (gameState.score * 0.0005);
+                
+                if (frameCount % Math.max(20, OBSTACLE_SPAWN_RATE - Math.floor(gameState.score/50)) === 0) {
+                    spawnObstacle();
+                }
+
+                // Update obstacle positions
+                gameState.obstacles.forEach(obs => {
+                    obs.z += gameSpeed;
+                });
+
+                // Remove old obstacles
+                gameState.obstacles = gameState.obstacles.filter(obs => obs.z < 20);
+
+                // 4. Collision Detection
+                // Raft radius approx 2.0
+                // Rock radius approx 1.0
+                const raftZ = 0; 
+                gameState.obstacles.forEach(obs => {
+                    const dz = obs.z - raftZ;
+                    const dx = obs.x - gameState.raftX;
+                    const dist = Math.sqrt(dx*dx + dz*dz);
+                    
+                    if (dist < 2.5) {
+                        endGame();
+                    }
+                });
+
+                gameState.score += 0.1;
+
+                // Prepare Viz Data
+                let inputsArr = [myInput];
+                playerInputs.forEach(v => inputsArr.push(v));
+                gameState.inputs = inputsArr;
+
+                // Broadcast
+                broadcastState();
+            } else {
+                // Client: Send Input
+                if (conn && conn.open) {
+                    conn.send({ type: 'input', value: myInput });
+                }
+            }
+
+            // --- RENDER UPDATES (ALL) ---
+            
+            // Sync Raft
+            raft.position.x += (gameState.raftX - raft.position.x) * 0.2; // Lerp
+            raft.position.y = Math.sin(Date.now() * 0.005) * 0.2; // Bobbing
+            
+            // Tilt raft based on movement
+            const tilt = (raft.position.x - gameState.raftX) * 0.5;
+            raft.rotation.z = tilt;
+            raft.rotation.x = Math.sin(Date.now() * 0.003) * 0.05;
+
+            // Sync Obstacles
+            // 1. Mark all existing local obstacles as unseen
+            obstacles.forEach(o => o.seen = false);
+
+            // 2. Update or Create from gameState
+            gameState.obstacles.forEach(serverObs => {
+                let localObs = obstacles.find(o => o.id === serverObs.id);
+                if (!localObs) {
+                    localObs = createObstacleMesh(serverObs);
+                    obstacles.push(localObs);
+                }
+                localObs.mesh.position.set(serverObs.x, 0.5, serverObs.z);
+                localObs.seen = true;
+            });
+
+            // 3. Remove unseen
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                if (!obstacles[i].seen) {
+                    scene.remove(obstacles[i].mesh);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // UI Updates
+            document.getElementById('score-display').innerText = Math.floor(gameState.score) + 'm';
+            updateInputViz(gameState.playerCount, gameState.inputs);
+
+            // Water scrolling effect
+            water.position.z = (gameState.score % 10);
+
+            renderer.render(scene, camera);
+        }
+
+        function endGame() {
+            gameState.crashed = true;
+            broadcastState(); // Final state
+            handleGameOver();
+        }
+
+        function handleGameOver() {
+            gameActive = false;
+            document.getElementById('final-score').innerText = Math.floor(gameState.score) + 'm';
+            uiStats.classList.add('hidden');
+            uiControls.classList.add('hidden');
+            uiMenu.classList.remove('hidden');
+            showPanel('game-over-panel');
+        }
+
+        function updateInputViz(count, inputs = []) {
+            // Rebuild Viz
+            vizContainer.innerHTML = '';
+            for(let i=0; i<count; i++) {
+                const div = document.createElement('div');
+                div.className = 'player-arrow';
+                div.style.backgroundColor = '#' + PLAYER_COLORS[i % PLAYER_COLORS.length].toString(16);
+                
+                const val = inputs[i] || 0;
+                if (val < 0) {
+                    div.classList.add('left');
+                    div.innerText = '◀';
+                } else if (val > 0) {
+                    div.classList.add('right');
+                    div.innerText = '▶';
+                } else {
+                    div.classList.add('center');
+                    div.innerText = '-';
+                }
+                vizContainer.appendChild(div);
+            }
+            
+            document.getElementById('player-count').innerText = `${count}/4`;
+        }
+
+
+        // --- NETWORKING ---
+
+        function initPeer() {
+            peer = new Peer(null, {
+                debug: 2
+            });
+
+            peer.on('open', (id) => {
+                myId = id;
+                console.log('My Peer ID:', id);
+            });
+
+            peer.on('error', (err) => {
+                console.error(err);
+                statusMsg.innerText = "Connection Error: " + err.type;
+            });
+
+            // Incoming connection (Host logic mostly)
+            peer.on('connection', (c) => {
+                if (!isHost) {
+                    // Clients shouldn't really get connections in this star topology
+                    c.close();
+                    return;
+                }
+
+                if (connections.length >= 3) {
+                    c.close(); // Max 4 players (Host + 3)
+                    return;
+                }
+
+                handleConnection(c);
+            });
+        }
+
+        function handleConnection(c) {
+            connections.push(c);
+            gameState.playerCount = connections.length + 1;
+            
+            // Enable start button if we have players
+            btnStart.disabled = false;
+            btnStart.innerText = "Start Game (" + (connections.length + 1) + " Players)";
+            document.getElementById('waiting-msg').innerText = `${connections.length} crew joined!`;
+
+            c.on('data', (data) => {
+                if (data.type === 'input') {
+                    playerInputs.set(c.peer, data.value);
+                }
+            });
+
+            c.on('close', () => {
+                connections = connections.filter(conn => conn !== c);
+                playerInputs.delete(c.peer);
+                gameState.playerCount = connections.length + 1;
+                document.getElementById('waiting-msg').innerText = `${connections.length} crew joined!`;
+                if (gameActive) {
+                    // If game is running and player drops, just keep going
+                } else {
+                    btnStart.innerText = connections.length > 0 ? "Start Game (" + (connections.length + 1) + " Players)" : "Start Game";
+                    if (connections.length === 0) btnStart.disabled = true;
+                }
+            });
+        }
+
+        function broadcastState() {
+            const packet = {
+                type: 'state',
+                state: gameState
+            };
+            connections.forEach(c => {
+                if(c.open) c.send(packet);
+            });
+        }
+
+        // --- MENU ACTIONS ---
+
+        function showPanel(id) {
+            document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        document.getElementById('btn-host-menu').addEventListener('click', () => {
+            isHost = true;
+            showPanel('host-panel');
+            if (myId) {
+                document.getElementById('host-id-display').value = myId;
+            } else {
+                // Wait for peer open
+                const checkId = setInterval(() => {
+                    if (myId) {
+                        document.getElementById('host-id-display').value = myId;
+                        clearInterval(checkId);
+                    }
+                }, 100);
+            }
+        });
+
+        document.getElementById('btn-join-menu').addEventListener('click', () => {
+            isHost = false;
+            showPanel('join-panel');
+        });
+
+        document.getElementById('btn-connect').addEventListener('click', () => {
+            const hostIdTarget = document.getElementById('join-id-input').value.trim();
+            if (!hostIdTarget) return;
+            
+            statusMsg.innerText = "Connecting...";
+            conn = peer.connect(hostIdTarget);
+
+            conn.on('open', () => {
+                statusMsg.innerText = "Connected! Waiting for host...";
+                showPanel('main-menu'); // Hide join panel, show waiting
+                uiMenu.classList.add('hidden'); // Actually hide entire menu, wait for sync
+                // Show a "Waiting" overlay ideally, but here we just wait for data
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'state') {
+                    // Sync state
+                    const serverState = data.state;
+                    gameState.score = serverState.score;
+                    gameState.raftX = serverState.raftX;
+                    gameState.obstacles = serverState.obstacles;
+                    gameState.playerCount = serverState.playerCount;
+                    gameState.inputs = serverState.inputs;
+                    gameState.crashed = serverState.crashed;
+                    
+                    if (!gameActive && !gameState.crashed) {
+                        // Game started
+                        gameActive = true;
+                        uiMenu.classList.add('hidden');
+                        uiStats.classList.remove('hidden');
+                        uiControls.classList.remove('hidden');
+                    }
+
+                    if (gameState.crashed && gameActive) {
+                        handleGameOver();
+                    }
+                }
+            });
+
+            conn.on('error', (err) => {
+                statusMsg.innerText = "Connection Failed";
+                uiMenu.classList.remove('hidden');
+            });
+        });
+
+        btnStart.addEventListener('click', () => {
+            // Send start signal by just starting logic
+            startGame();
+        });
+
+        // --- INPUT HANDLING ---
+
+        function setInput(val) {
+            myInput = val;
+            const btnLeft = document.getElementById('btn-left');
+            const btnRight = document.getElementById('btn-right');
+            
+            btnLeft.classList.remove('active');
+            btnRight.classList.remove('active');
+            
+            if (val === -1) btnLeft.classList.add('active');
+            if (val === 1) btnRight.classList.add('active');
+        }
+
+        // Keyboard
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') setInput(-1);
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') setInput(1);
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (
+                e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A' || 
+                e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D'
+            ) {
+                setInput(0);
+            }
+        });
+
+        // Touch
+        const btnLeft = document.getElementById('btn-left');
+        const btnRight = document.getElementById('btn-right');
+
+        const handleTouchStart = (val, e) => { e.preventDefault(); setInput(val); };
+        const handleTouchEnd = (e) => { e.preventDefault(); setInput(0); };
+
+        btnLeft.addEventListener('mousedown', (e) => handleTouchStart(-1, e));
+        btnLeft.addEventListener('touchstart', (e) => handleTouchStart(-1, e));
+        
+        btnRight.addEventListener('mousedown', (e) => handleTouchStart(1, e));
+        btnRight.addEventListener('touchstart', (e) => handleTouchStart(1, e));
+
+        ['mouseup', 'mouseleave', 'touchend'].forEach(evt => {
+            btnLeft.addEventListener(evt, handleTouchEnd);
+            btnRight.addEventListener(evt, handleTouchEnd);
+        });
+
+        // Utils
+        window.copyId = function() {
+            const copyText = document.getElementById("host-id-display");
+            copyText.select();
+            copyText.setSelectionRange(0, 99999);
+            document.execCommand('copy');
+            
+            const fb = document.getElementById('copy-feedback');
+            fb.style.opacity = 1;
+            setTimeout(() => fb.style.opacity = 0, 2000);
+        }
+
+        // --- BOOTSTRAP ---
+        initThree();
+        initPeer();
+
+    </script>
+</body>
+</html>
