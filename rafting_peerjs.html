@@ -642,62 +642,57 @@
         // --- NETWORKING ---
 
         function initPeer() {
-            peer = new Peer(null, {
-                debug: 2,
-                config: {
-                    iceServers: [
-                      {
-                        urls: "stun:stun.relay.metered.ca:80",
-                      },
-                      {
-                        urls: "turn:global.relay.metered.ca:80",
-                        username: "0ba7f8b68860641ab9998f56",
-                        credential: "P8ze3l+EMzo7tn8q",
-                      },
-                      {
-                        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-                        username: "0ba7f8b68860641ab9998f56",
-                        credential: "P8ze3l+EMzo7tn8q",
-                      },
-                      {
-                        urls: "turn:global.relay.metered.ca:443",
-                        username: "0ba7f8b68860641ab9998f56",
-                        credential: "P8ze3l+EMzo7tn8q",
-                      },
-                      {
-                        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-                        username: "0ba7f8b68860641ab9998f56",
-                        credential: "P8ze3l+EMzo7tn8q",
-                      }
-                    ]
-                }
-            });
-
-            peer.on('open', (id) => {
-                myId = id;
-                console.log('My Peer ID:', id);
-            });
-
-            peer.on('error', (err) => {
-                console.error(err);
-                statusMsg.innerText = "Connection Error: " + err.type;
-            });
-
-            // Incoming connection (Host logic mostly)
-            peer.on('connection', (c) => {
-                if (!isHost) {
-                    // Clients shouldn't really get connections in this star topology
-                    c.close();
-                    return;
-                }
-
-                if (connections.length >= 3) {
-                    c.close(); // Max 4 players (Host + 3)
-                    return;
-                }
-
-                handleConnection(c);
-            });
+            // 1. SET YOUR API KEY HERE
+            const METERED_API_KEY = "b52b3f4bb64d53719a9a178dfed0099b4ba3"; 
+        
+            // 2. Fetch fresh credentials
+            fetch(`https://openrelay.metered.ca/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`)
+                .then(response => response.json())
+                .then(iceServers => {
+                    console.log("FRESH ICE SERVERS:", iceServers); // Debug to see if it works
+        
+                    // 3. Initialize Peer ONLY after we have the servers
+                    peer = new Peer(null, {
+                        debug: 2,
+                        config: {
+                            iceServers: iceServers
+                        }
+                    });
+        
+                    // 4. Attach Event Listeners
+                    peer.on('open', (id) => {
+                        myId = id;
+                        console.log('My Peer ID:', id);
+                        // If we are the host, update the input box automatically
+                        if (isHost) {
+                            document.getElementById('host-id-display').value = id;
+                        }
+                    });
+        
+                    peer.on('error', (err) => {
+                        console.error(err);
+                        statusMsg.innerText = "Error: " + err.type;
+                    });
+        
+                    peer.on('connection', (c) => {
+                        if (!isHost) {
+                            c.close();
+                            return;
+                        }
+                        if (connections.length >= 3) {
+                            c.close(); // Max 4 players
+                            return;
+                        }
+                        handleConnection(c);
+                    });
+                })
+                .catch(err => {
+                    console.error("Failed to fetch TURN credentials", err);
+                    statusMsg.innerText = "TURN Server Error. Check API Key.";
+                    
+                    // Fallback to Google STUN if Metered fails (better than nothing)
+                    peer = new Peer(null, { debug: 2 });
+                });
         }
 
         function handleConnection(c) {
