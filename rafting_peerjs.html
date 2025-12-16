@@ -646,9 +646,29 @@
                 debug: 2,
                 config: {
                     iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:stun2.l.google.com:19302' }
+                      {
+                        urls: "stun:stun.relay.metered.ca:80",
+                      },
+                      {
+                        urls: "turn:global.relay.metered.ca:80",
+                        username: "0ba7f8b68860641ab9998f56",
+                        credential: "P8ze3l+EMzo7tn8q",
+                      },
+                      {
+                        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+                        username: "0ba7f8b68860641ab9998f56",
+                        credential: "P8ze3l+EMzo7tn8q",
+                      },
+                      {
+                        urls: "turn:global.relay.metered.ca:443",
+                        username: "0ba7f8b68860641ab9998f56",
+                        credential: "P8ze3l+EMzo7tn8q",
+                      },
+                      {
+                        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+                        username: "0ba7f8b68860641ab9998f56",
+                        credential: "P8ze3l+EMzo7tn8q",
+                      }
                     ]
                 }
             });
