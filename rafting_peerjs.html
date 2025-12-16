@@ -646,7 +646,7 @@
             const METERED_API_KEY = "b52b3f4bb64d53719a9a178dfed0099b4ba3"; 
         
             // 2. Fetch fresh credentials
-            fetch('https://aigames.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}')
+            fetch(`https://aigames.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`)
                 .then(response => response.json())
                 .then(iceServers => {
                     console.log("FRESH ICE SERVERS:", iceServers); // Debug to see if it works
